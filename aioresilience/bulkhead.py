@@ -12,6 +12,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
+from .events import EventEmitter, PatternType, EventType, BulkheadEvent
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +88,9 @@ class Bulkhead:
         self._metrics = BulkheadMetrics()
         self._lock = asyncio.Lock()
         self._waiting_count = 0
+        
+        # Event emitter for monitoring
+        self.events = EventEmitter(pattern_name=name)
     
     async def _try_acquire(self) -> bool:
         """Try to acquire a slot, respecting waiting limit"""
@@ -148,6 +152,18 @@ class Bulkhead:
         if not acquired:
             async with self._lock:
                 self._metrics.rejected_requests += 1
+            
+            # Emit bulkhead full event
+            await self.events.emit(BulkheadEvent(
+                pattern_type=PatternType.BULKHEAD,
+                event_type=EventType.BULKHEAD_FULL,
+                pattern_name=self.name,
+                active_count=self._metrics.current_active,
+                waiting_count=self._waiting_count,
+                max_concurrent=self.max_concurrent,
+                max_waiting=self.max_waiting,
+            ))
+            
             logger.warning(
                 f"Bulkhead '{self.name}' is full "
                 f"(max_concurrent: {self.max_concurrent}, "
@@ -172,6 +188,17 @@ class Bulkhead:
                         self._metrics.total_wait_time / self._metrics.total_requests
                     )
             
+            # Emit slot acquired event
+            await self.events.emit(BulkheadEvent(
+                pattern_type=PatternType.BULKHEAD,
+                event_type=EventType.SLOT_ACQUIRED,
+                pattern_name=self.name,
+                active_count=self._metrics.current_active,
+                waiting_count=self._waiting_count,
+                max_concurrent=self.max_concurrent,
+                max_waiting=self.max_waiting,
+            ))
+            
             # Execute the function
             if asyncio.iscoroutinefunction(func):
                 result = await func(*args, **kwargs)
@@ -187,6 +214,17 @@ class Bulkhead:
             async with self._lock:
                 self._metrics.current_active -= 1
             self._semaphore.release()
+            
+            # Emit slot released event
+            await self.events.emit(BulkheadEvent(
+                pattern_type=PatternType.BULKHEAD,
+                event_type=EventType.SLOT_RELEASED,
+                pattern_name=self.name,
+                active_count=self._metrics.current_active,
+                waiting_count=self._waiting_count,
+                max_concurrent=self.max_concurrent,
+                max_waiting=self.max_waiting,
+            ))
     
     async def __aenter__(self):
         """Async context manager entry"""

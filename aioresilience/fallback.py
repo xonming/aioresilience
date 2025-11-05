@@ -10,6 +10,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Callable, Optional, Type, Union
 
+from .events import EventEmitter, PatternType, EventType, FallbackEvent
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +62,9 @@ class FallbackHandler:
         self.reraise_on_fallback_failure = reraise_on_fallback_failure
         self._metrics = FallbackMetrics()
         self._lock = asyncio.Lock()
+        
+        # Event emitter for monitoring
+        self.events = EventEmitter(pattern_name=f"fallback-{id(self)}")
     
     async def _execute_fallback(self, *args, **kwargs) -> Any:
         """Execute the fallback logic"""
@@ -115,12 +119,29 @@ class FallbackHandler:
                 f"executing fallback"
             )
             
+            # Emit primary failed event
+            await self.events.emit(FallbackEvent(
+                pattern_type=PatternType.FALLBACK,
+                event_type=EventType.PRIMARY_FAILED,
+                pattern_name=self.events.pattern_name,
+                primary_error=str(e),
+            ))
+            
             # Try fallback
             try:
                 result = await self._execute_fallback(*args, **kwargs)
                 
                 async with self._lock:
                     self._metrics.fallback_executions += 1
+                
+                # Emit fallback executed event
+                await self.events.emit(FallbackEvent(
+                    pattern_type=PatternType.FALLBACK,
+                    event_type=EventType.FALLBACK_EXECUTED,
+                    pattern_name=self.events.pattern_name,
+                    primary_error=str(e),
+                    fallback_value=result,
+                ))
                 
                 logger.info("Fallback executed successfully")
                 return result
