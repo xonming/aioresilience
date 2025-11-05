@@ -11,6 +11,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
+from .events import EventEmitter, PatternType, EventType, TimeoutEvent
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +66,9 @@ class TimeoutManager:
         self.raise_on_timeout = raise_on_timeout
         self._metrics = TimeoutMetrics()
         self._lock = asyncio.Lock()
+        
+        # Event emitter for monitoring
+        self.events = EventEmitter(pattern_name=f"timeout-{id(self)}")
     
     async def execute(
         self,
@@ -111,6 +115,15 @@ class TimeoutManager:
                     self._metrics.total_execution_time / self._metrics.total_executions
                 )
             
+            # Emit success event
+            await self.events.emit(TimeoutEvent(
+                pattern_type=PatternType.TIMEOUT,
+                event_type=EventType.TIMEOUT_SUCCESS,
+                pattern_name=self.events.pattern_name,
+                timeout_value=self.timeout,
+                elapsed=execution_time,
+            ))
+            
             return result
             
         except asyncio.TimeoutError:
@@ -128,6 +141,15 @@ class TimeoutManager:
                 f"Operation timed out after {execution_time:.2f}s "
                 f"(timeout: {self.timeout}s)"
             )
+            
+            # Emit timeout occurred event
+            await self.events.emit(TimeoutEvent(
+                pattern_type=PatternType.TIMEOUT,
+                event_type=EventType.TIMEOUT_OCCURRED,
+                pattern_name=self.events.pattern_name,
+                timeout_value=self.timeout,
+                elapsed=execution_time,
+            ))
             
             if self.raise_on_timeout:
                 raise TimeoutError(

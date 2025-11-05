@@ -100,6 +100,22 @@ from .load_shedding import (
     with_load_shedding,
 )
 
+# Event System
+from .events import (
+    EventEmitter,
+    global_bus,
+    PatternType,
+    EventType,
+    ResilienceEvent,
+    CircuitBreakerEvent,
+    RateLimitEvent,
+    BulkheadEvent,
+    LoadShedderEvent,
+    RetryEvent,
+    TimeoutEvent,
+    FallbackEvent,
+)
+
 __all__ = [
     # Circuit Breaker
     "CircuitBreaker",
@@ -155,6 +171,20 @@ __all__ = [
     "LoadLevel",
     "LoadMetrics",
     "with_load_shedding",
+    
+    # Event System
+    "EventEmitter",
+    "global_bus",
+    "PatternType",
+    "EventType",
+    "ResilienceEvent",
+    "CircuitBreakerEvent",
+    "RateLimitEvent",
+    "BulkheadEvent",
+    "LoadShedderEvent",
+    "RetryEvent",
+    "TimeoutEvent",
+    "FallbackEvent",
 ]
 
 __version__ = "0.1.0"

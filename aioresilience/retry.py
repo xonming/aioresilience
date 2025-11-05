@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Optional, Type, Union
 
+from .events import EventEmitter, PatternType, EventType, RetryEvent
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +100,9 @@ class RetryPolicy:
         self.retry_on_result = retry_on_result
         self._metrics = RetryMetrics()
         self._lock = asyncio.Lock()
+        
+        # Event emitter for monitoring
+        self.events = EventEmitter(pattern_name=f"retry-{id(self)}")
     
     def _calculate_delay(self, attempt: int) -> float:
         """Calculate delay for given attempt number"""
@@ -184,6 +188,16 @@ class RetryPolicy:
                 async with self._lock:
                     self._metrics.total_attempts += 1
                     self._metrics.successful_attempts += 1
+                
+                # Emit success event
+                await self.events.emit(RetryEvent(
+                    pattern_type=PatternType.RETRY,
+                    event_type=EventType.RETRY_SUCCESS,
+                    pattern_name=self.events.pattern_name,
+                    attempt=attempt,
+                    max_attempts=self.max_attempts,
+                ))
+                
                 return result
                 
             except self.retry_on_exceptions as e:
@@ -201,10 +215,33 @@ class RetryPolicy:
                     )
                     async with self._lock:
                         self._metrics.total_delay += delay
+                    
+                    # Emit retry attempt event
+                    await self.events.emit(RetryEvent(
+                        pattern_type=PatternType.RETRY,
+                        event_type=EventType.RETRY_ATTEMPT,
+                        pattern_name=self.events.pattern_name,
+                        attempt=attempt + 1,  # Next attempt
+                        max_attempts=self.max_attempts,
+                        delay=delay,
+                        error=str(e),
+                    ))
+                    
                     await asyncio.sleep(delay)
                 else:
                     async with self._lock:
                         self._metrics.retries_exhausted += 1
+                    
+                    # Emit retries exhausted event
+                    await self.events.emit(RetryEvent(
+                        pattern_type=PatternType.RETRY,
+                        event_type=EventType.RETRY_EXHAUSTED,
+                        pattern_name=self.events.pattern_name,
+                        attempt=attempt,
+                        max_attempts=self.max_attempts,
+                        error=str(e),
+                    ))
+                    
                     logger.error(
                         f"All {self.max_attempts} attempts failed. Last error: {type(e).__name__}: {e}"
                     )

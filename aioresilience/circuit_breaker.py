@@ -13,6 +13,8 @@ from enum import Enum
 from functools import wraps
 import logging
 
+from .events import EventEmitter, PatternType, EventType, CircuitBreakerEvent
+
 logger = logging.getLogger(__name__)
 
 T = TypeVar('T')
@@ -118,6 +120,21 @@ class CircuitBreaker:
         self.half_open_calls = 0
         
         self._lock = asyncio.Lock()
+        
+        # Event emitter for monitoring
+        self.events = EventEmitter(pattern_name=name)
+    
+    async def _emit_state_change(self, old_state: CircuitState, new_state: CircuitState):
+        """Emit state change event"""
+        await self.events.emit(CircuitBreakerEvent(
+            pattern_type=PatternType.CIRCUIT_BREAKER,
+            event_type=EventType.STATE_CHANGE,
+            pattern_name=self.name,
+            old_state=old_state.value,
+            new_state=new_state.value,
+            failure_count=self.metrics.consecutive_failures,
+            success_count=self.metrics.consecutive_successes,
+        ))
     
     async def can_execute(self) -> bool:
         """
@@ -132,10 +149,12 @@ class CircuitBreaker:
             elif self.state == CircuitState.OPEN:
                 if self.metrics.last_failure_time and time.time() - self.metrics.last_failure_time > self.recovery_timeout:
                     # Transition to half-open
+                    old_state = self.state
                     self.state = CircuitState.HALF_OPEN
                     self.metrics.last_state_change = time.time()
                     self.half_open_calls = 0  # Reset counter
                     logger.info(f"Circuit breaker '{self.name}': OPEN → HALF_OPEN")
+                    await self._emit_state_change(old_state, self.state)
                     return True
                 return False
             else:  # HALF_OPEN
@@ -149,13 +168,25 @@ class CircuitBreaker:
             self.metrics.consecutive_successes += 1
             self.metrics.consecutive_failures = 0
             
+            # Emit success event
+            await self.events.emit(CircuitBreakerEvent(
+                pattern_type=PatternType.CIRCUIT_BREAKER,
+                event_type=EventType.CALL_SUCCESS,
+                pattern_name=self.name,
+                old_state=self.state.value,
+                new_state=self.state.value,
+                success_count=self.metrics.consecutive_successes,
+            ))
+            
             # Transition from HALF_OPEN to CLOSED
             if self.state == CircuitState.HALF_OPEN:
                 if self.metrics.consecutive_successes >= self.success_threshold:
+                    old_state = self.state
                     self.state = CircuitState.CLOSED
                     self.metrics.last_state_change = time.time()
                     self.half_open_calls = 0  # Reset counter
                     logger.info(f"Circuit breaker '{self.name}': HALF_OPEN → CLOSED")
+                    await self._emit_state_change(old_state, self.state)
     
     async def on_failure(self):
         """Handle failed execution"""
@@ -166,22 +197,36 @@ class CircuitBreaker:
             self.metrics.consecutive_successes = 0
             self.metrics.last_failure_time = time.time()
             
+            # Emit failure event
+            await self.events.emit(CircuitBreakerEvent(
+                pattern_type=PatternType.CIRCUIT_BREAKER,
+                event_type=EventType.CALL_FAILURE,
+                pattern_name=self.name,
+                old_state=self.state.value,
+                new_state=self.state.value,
+                failure_count=self.metrics.consecutive_failures,
+            ))
+            
             # Transition to OPEN if threshold exceeded
             if self.state == CircuitState.CLOSED:
                 if self.metrics.consecutive_failures >= self.failure_threshold:
+                    old_state = self.state
                     self.state = CircuitState.OPEN
                     self.metrics.last_state_change = time.time()
                     logger.error(
                         f"Circuit breaker '{self.name}': CLOSED → OPEN "
-                        f"({self.metrics.consecutive_failures} consecutive failures)"
+                        f"(failures: {self.metrics.consecutive_failures})"
                     )
+                    await self._emit_state_change(old_state, self.state)
             
             # Transition back to OPEN from HALF_OPEN
             elif self.state == CircuitState.HALF_OPEN:
+                old_state = self.state
                 self.state = CircuitState.OPEN
                 self.metrics.last_state_change = time.time()
                 self.half_open_calls = 0  # Reset counter
                 logger.warning(f"Circuit breaker '{self.name}': HALF_OPEN → OPEN")
+                await self._emit_state_change(old_state, self.state)
     
     async def call(self, func: Callable[..., T], *args, **kwargs) -> T:
         """
@@ -314,10 +359,20 @@ class CircuitBreaker:
     async def reset(self):
         """Manually reset circuit breaker"""
         async with self._lock:
+            old_state = self.state
             self.state = CircuitState.CLOSED
             self.metrics = CircuitMetrics()
             self.half_open_calls = 0
             logger.info(f"Circuit breaker '{self.name}': Manually reset")
+            
+            # Emit reset event
+            await self.events.emit(CircuitBreakerEvent(
+                pattern_type=PatternType.CIRCUIT_BREAKER,
+                event_type=EventType.CIRCUIT_RESET,
+                pattern_name=self.name,
+                old_state=old_state.value,
+                new_state=self.state.value,
+            ))
 
 
 class CircuitBreakerOpenError(Exception):
