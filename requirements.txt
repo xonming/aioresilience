@@ -1,0 +1,2 @@
+# Core dependencies
+aiolimiter>=1.0.0

@@ -1,0 +1,4 @@
+# System monitoring support for LoadShedder
+-r requirements.txt
+
+psutil>=5.9.0

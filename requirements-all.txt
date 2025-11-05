@@ -1,0 +1,5 @@
+# All optional dependencies
+-r requirements.txt
+-r requirements-redis.txt
+-r requirements-system.txt
+-r requirements-integrations.txt

@@ -1,0 +1,12 @@
+# Framework integrations
+-r requirements.txt
+
+# FastAPI / Starlette
+fastapi>=0.100.0
+starlette>=0.27.0
+
+# Sanic
+sanic>=23.0.0
+
+# aiohttp
+aiohttp>=3.8.0

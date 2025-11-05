@@ -1,0 +1,90 @@
+name: Coverage
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  coverage:
+    name: Coverage Report
+    runs-on: ubuntu-latest
+    
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+        cache: 'pip'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e .
+        pip install -r requirements-dev.txt
+        pip install pytest-cov coverage[toml]
+    
+    - name: Run tests with coverage
+      run: |
+        pytest tests/ --cov=aioresilience --cov-report=xml --cov-report=html --cov-report=term-missing --ignore=tests/stress
+      env:
+        REDIS_HOST: localhost
+        REDIS_PORT: 6379
+    
+    - name: Generate coverage badge
+      run: |
+        coverage report | grep TOTAL | awk '{print $4}' | sed 's/%//' > coverage_percent.txt
+        echo "COVERAGE=$(cat coverage_percent.txt)" >> $GITHUB_ENV
+    
+    - name: Upload coverage reports to Codecov
+      uses: codecov/codecov-action@v4
+      with:
+        files: ./coverage.xml
+        flags: unittests
+        name: aioresilience-coverage
+        fail_ci_if_error: false
+      env:
+        CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+    
+    - name: Upload coverage HTML report
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-html-report
+        path: htmlcov/
+    
+    - name: Coverage Summary
+      run: |
+        echo "## 📊 Coverage Report" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "Coverage: ${{ env.COVERAGE }}%" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+        coverage report >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+    
+    - name: Check coverage threshold
+      run: |
+        COVERAGE=${{ env.COVERAGE }}
+        if (( $(echo "$COVERAGE < 85" | bc -l) )); then
+          echo "❌ Coverage is below 85% threshold"
+          exit 1
+        else
+          echo "✅ Coverage is above 85% threshold"
+        fi

@@ -1,0 +1,4 @@
+# Redis support for distributed rate limiting
+-r requirements.txt
+
+redis>=4.5.0
