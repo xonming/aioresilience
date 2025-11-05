@@ -15,6 +15,8 @@ from enum import Enum
 from functools import wraps
 import logging
 
+from ..events import EventEmitter, PatternType, EventType, LoadShedderEvent
+
 logger = logging.getLogger(__name__)
 
 
@@ -96,6 +98,9 @@ class BasicLoadShedder:
         self.total_shed = 0
         
         self._lock = asyncio.Lock()
+        
+        # Event emitter for monitoring
+        self.events = EventEmitter(pattern_name=f"load-shedder-{id(self)}")
     
     def _get_load_metrics(self) -> LoadMetrics:
         """Get current load metrics"""
@@ -144,9 +149,33 @@ class BasicLoadShedder:
             if should_shed:
                 self.total_shed += 1
                 logger.warning(f"Load shed: {reason} (total shed: {self.total_shed})")
+                
+                # Emit request shed event
+                metrics = self._get_load_metrics()
+                await self.events.emit(LoadShedderEvent(
+                    pattern_type=PatternType.LOAD_SHEDDER,
+                    event_type=EventType.REQUEST_SHED,
+                    pattern_name=self.events.pattern_name,
+                    active_requests=self.active_requests,
+                    max_requests=self.max_requests,
+                    load_level=metrics.load_level.value,
+                    reason=reason,
+                ))
+                
                 return False
             
             self.active_requests += 1
+            
+            # Emit request accepted event
+            metrics = self._get_load_metrics()
+            await self.events.emit(LoadShedderEvent(
+                pattern_type=PatternType.LOAD_SHEDDER,
+                event_type=EventType.REQUEST_ACCEPTED,
+                pattern_name=self.events.pattern_name,
+                active_requests=self.active_requests,
+                max_requests=self.max_requests,
+                load_level=metrics.load_level.value,
+            ))
             return True
     
     async def release(self):
