@@ -100,7 +100,7 @@ pip install aioresilience
 ```
 
 <details>
-<summary><b>📦 Optional Features (click to expand)</b></summary>
+<summary><b>Optional Features (click to expand)</b></summary>
 
 ```bash
 # Redis-based distributed rate limiting
@@ -172,7 +172,7 @@ See [INTEGRATIONS.md](INTEGRATIONS.md) for detailed integration guides.
 ## Logging Configuration
 
 <details>
-<summary><b>🔧 Logging Setup (click to expand)</b></summary>
+<summary><b>Logging Setup (click to expand)</b></summary>
 
 aioresilience follows Python library best practices with **silent logging by default** (NullHandler). This gives you complete control over how errors and operational logs are handled.
 
@@ -480,7 +480,7 @@ await rate_limiter.close()
 > **Note:** Redis rate limiter uses a sliding window algorithm with sorted sets for accurate distributed rate limiting.
 
 <details>
-<summary><b>🔍 Monitoring Rate Limits</b></summary>
+<summary><b>Monitoring Rate Limits</b></summary>
 
 **Event-Driven Monitoring**
 
@@ -494,7 +494,7 @@ rate_limiter = RateLimiter(name="api")
 # Monitor allowed requests
 @rate_limiter.events.on("rate_limit_passed")
 async def on_passed(event):
-    print(f"✅ Request allowed for key: {event.metadata['key']}")
+    print(f"Request allowed for key: {event.metadata['key']}")
     print(f"Rate: {event.metadata['rate']}")
 
 # Alert on rate limit violations
@@ -502,7 +502,7 @@ async def on_passed(event):
 async def on_exceeded(event):
     key = event.metadata['key']
     rate = event.metadata['rate']
-    print(f"⚠️ Rate limit exceeded for {key} (limit: {rate})")
+    print(f"Rate limit exceeded for {key} (limit: {rate})")
     # Track abusive users
     await track_rate_limit_violation(key)
 ```
@@ -590,7 +590,7 @@ if await load_shedder.acquire(priority="high"):
 > **Note:** SystemLoadShedder requires the `psutil` package. Install with `pip install aioresilience[system]`.
 
 <details>
-<summary><b>🔍 Monitoring Load Shedding</b></summary>
+<summary><b>Monitoring Load Shedding</b></summary>
 
 **Event-Driven Monitoring**
 
@@ -606,12 +606,12 @@ load_shedder = LoadShedder(max_requests=1000)
 async def on_accepted(event):
     active = event.metadata['active_requests']
     max_requests = event.metadata['max_requests']
-    print(f"✅ Request accepted ({active}/{max_requests} active)")
+    print(f"Request accepted ({active}/{max_requests} active)")
 
 # Alert when shedding load
 @load_shedder.events.on("request_shed")
 async def on_shed(event):
-    print(f"⚠️ Request shed - system overloaded!")
+    print(f"Request shed - system overloaded!")
     print(f"Active: {event.metadata['active_requests']}")
     print(f"CPU: {event.metadata.get('cpu_percent', 'N/A')}%")
     await send_alert("Load shedding active - system under pressure")
@@ -667,7 +667,7 @@ async def process_item(item):
 ```
 
 <details>
-<summary><b>🔍 Monitoring Backpressure</b></summary>
+<summary><b>Monitoring Backpressure</b></summary>
 
 **Event-Driven Monitoring**
 
@@ -687,14 +687,14 @@ backpressure = BackpressureManager(
 async def on_high(event):
     pending = event.metadata['pending_count']
     high_mark = event.metadata['high_water_mark']
-    print(f"⚠️ High backpressure: {pending} pending (threshold: {high_mark})")
+    print(f"High backpressure: {pending} pending (threshold: {high_mark})")
     await signal_upstream_to_slow_down()
 
 # Monitor backpressure relief
 @backpressure.events.on("backpressure_low")
 async def on_low(event):
     pending = event.metadata['pending_count']
-    print(f"✅ Backpressure relieved: {pending} pending")
+    print(f"Backpressure relieved: {pending} pending")
     await signal_upstream_to_resume()
 ```
 
@@ -740,7 +740,7 @@ print(f"Active requests: {stats['active_count']}")
 > **Note:** The AIMD algorithm increases the limit linearly on success and decreases it exponentially on failure, similar to TCP congestion control.
 
 <details>
-<summary><b>🔍 Monitoring Adaptive Concurrency</b></summary>
+<summary><b>Monitoring Adaptive Concurrency</b></summary>
 
 **Event-Driven Monitoring**
 
@@ -756,14 +756,14 @@ limiter = AdaptiveConcurrencyLimiter(initial_limit=100)
 async def on_increase(event):
     new_limit = event.metadata['new_limit']
     old_limit = event.metadata['old_limit']
-    print(f"📈 Concurrency limit increased: {old_limit} → {new_limit}")
+    print(f"Concurrency limit increased: {old_limit} → {new_limit}")
 
 # Monitor limit decreases
 @limiter.events.on("limit_decreased")
 async def on_decrease(event):
     new_limit = event.metadata['new_limit']
     old_limit = event.metadata['old_limit']
-    print(f"📉 Concurrency limit decreased: {old_limit} → {new_limit}")
+    print(f"Concurrency limit decreased: {old_limit} → {new_limit}")
     await send_alert("System experiencing failures - concurrency reduced")
 ```
 
@@ -847,7 +847,7 @@ policy = RetryPolicies.network()
 ```
 
 <details>
-<summary><b>🔍 Monitoring Retry Attempts</b></summary>
+<summary><b>Monitoring Retry Attempts</b></summary>
 
 **Event-Driven Monitoring**
 
@@ -868,12 +868,12 @@ async def on_retry(event):
 @policy.events.on("retry_success")
 async def on_success(event):
     attempts = event.metadata['attempt']
-    print(f"✅ Success after {attempts} attempts!")
+    print(f"Success after {attempts} attempts!")
 
 # Alert when all retries exhausted
 @policy.events.on("retry_exhausted")
 async def on_exhausted(event):
-    print(f"❌ All {event.metadata['max_attempts']} retries failed")
+    print(f"All {event.metadata['max_attempts']} retries failed")
     await send_alert("Retry exhausted for critical operation")
 ```
 
@@ -933,7 +933,7 @@ result = await with_deadline(fetch_data, deadline)
 ```
 
 <details>
-<summary><b>🔍 Monitoring Timeouts</b></summary>
+<summary><b>Monitoring Timeouts</b></summary>
 
 **Event-Driven Monitoring**
 
@@ -948,12 +948,12 @@ manager = TimeoutManager(timeout=5.0)
 @manager.events.on("timeout_success")
 async def on_success(event):
     duration = event.metadata['duration']
-    print(f"✅ Completed in {duration:.2f}s (within {event.metadata['timeout']}s limit)")
+    print(f"Completed in {duration:.2f}s (within {event.metadata['timeout']}s limit)")
 
 # Alert on timeouts
 @manager.events.on("timeout_exceeded")
 async def on_timeout(event):
-    print(f"⏱️ Operation timed out after {event.metadata['timeout']}s")
+    print(f"Operation timed out after {event.metadata['timeout']}s")
     await send_alert(f"Timeout exceeded for {event.pattern_name}")
 ```
 
@@ -1034,7 +1034,7 @@ await cache_bulkhead.execute(get_cache)
 ```
 
 <details>
-<summary><b>🔍 Monitoring Bulkhead</b></summary>
+<summary><b>Monitoring Bulkhead</b></summary>
 
 **Event-Driven Monitoring**
 
@@ -1055,7 +1055,7 @@ async def on_accepted(event):
 # Alert on rejections
 @bulkhead.events.on("bulkhead_rejected")
 async def on_rejected(event):
-    print(f"⚠️ Request rejected - bulkhead full!")
+    print(f"Request rejected - bulkhead full!")
     print(f"Active: {event.metadata['active_count']}, Waiting: {event.metadata['waiting_count']}")
     await send_alert("Bulkhead capacity exceeded")
 ```
@@ -1146,7 +1146,7 @@ user = await get_user("123")
 ```
 
 <details>
-<summary><b>🔍 Monitoring Fallback</b></summary>
+<summary><b>Monitoring Fallback</b></summary>
 
 **Event-Driven Monitoring**
 
@@ -1167,7 +1167,7 @@ fallback_handler = Fallback(fallback_value={"default": "data"})
 
 @fallback_handler.events.on("fallback_triggered")
 async def on_fallback(event):
-    print(f"⚠️ Fallback triggered due to: {event.metadata.get('error_type')}")
+    print(f"Fallback triggered due to: {event.metadata.get('error_type')}")
     await send_alert("Primary service failed, using fallback")
 ```
 
@@ -1462,7 +1462,7 @@ async def on_failure(event):
 
 # Or register handlers directly
 async def on_circuit_opened(event):
-    logger.critical(f"⚠️  Circuit {event.name} OPENED! System degraded.")
+    logger.critical(f"Circuit {event.name} OPENED! System degraded.")
 
 circuit.events.on("circuit_opened", on_circuit_opened)
 
@@ -1564,7 +1564,7 @@ For detailed examples, see `examples/events_example.py`.
 ## Architecture
 
 <details>
-<summary><b>📁 Project Structure (click to expand)</b></summary>
+<summary><b>Project Structure (click to expand)</b></summary>
 
 aioresilience follows a modular architecture with minimal required dependencies:
 
@@ -1643,7 +1643,7 @@ aioresilience/
 6. **Observable**: Rich metrics and statistics for monitoring
 
 <details>
-<summary><b>📊 Comparison with Other Libraries</b></summary>
+<summary><b>Comparison with Other Libraries</b></summary>
 
 | Feature | aioresilience | pybreaker | circuitbreaker |
 |---------|--------------|-----------|----------------|
@@ -1730,7 +1730,7 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 For major changes, please open an issue first to discuss what you would like to change.
 
 <details>
-<summary><b>🛠️ Development Setup (click to expand)</b></summary>
+<summary><b>Development Setup (click to expand)</b></summary>
 
 ```bash
 # Clone the repository
