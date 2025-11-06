@@ -85,6 +85,27 @@ app.add_middleware(
 )
 ```
 
+### Route Decorators
+
+#### retry_route (Recommended for Retry Logic)
+Route-level decorator for applying retry logic to specific endpoints.
+
+```python
+from aioresilience import RetryPolicy
+from aioresilience.integrations.fastapi import retry_route
+
+@app.get("/api/data")
+@retry_route(RetryPolicy(max_attempts=3, initial_delay=0.1, exponential_base=2))
+async def get_data():
+    # This will retry up to 3 times with exponential backoff
+    return {"data": "..."}
+```
+
+**Note:** Use `retry_route` decorator instead of `RetryMiddleware` for retry logic. 
+`RetryMiddleware` has limitations due to Starlette's `call_next()` behavior, which 
+consumes the response stream and prevents true retries. The `retry_route` decorator 
+properly retries at the route level.
+
 ### Dependencies
 
 #### rate_limit_dependency

@@ -11,6 +11,7 @@ __pycache__/
 build/
 develop-eggs/
 dist/
+dist_test/
 downloads/
 eggs/
 .eggs/
@@ -128,3 +129,9 @@ dmypy.json
 # OS files
 .DS_Store
 Thumbs.db
+    
+# Temporary root-level files (not in subdirectories)
+/test_*.py
+/benchmark_*.py
+/*.bat
+/*.ps1

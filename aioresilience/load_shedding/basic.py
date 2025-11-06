@@ -13,11 +13,11 @@ from typing import Optional, Callable, Any
 from dataclasses import dataclass
 from enum import Enum
 from functools import wraps
-import logging
 
 from ..events import EventEmitter, PatternType, EventType, LoadShedderEvent
+from ..logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class LoadLevel(Enum):

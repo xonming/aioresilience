@@ -5,6 +5,7 @@ Global event bus for centralized monitoring
 import asyncio
 from typing import Dict, List, Callable
 from .types import ResilienceEvent
+from ..logging import log_error
 
 
 class GlobalEventBus:
@@ -108,29 +109,44 @@ class GlobalEventBus:
             return  # No handlers registered, skip
         
         # Get handlers for this event type
-        handlers = self._handlers.get(event.event_type.value, []).copy()
+        event_handlers = self._handlers.get(event.event_type.value, [])
         
-        # Add wildcard handlers
-        handlers.extend(self._wildcard)
+        # Fast path: no handlers at all
+        if not event_handlers and not self._wildcard:
+            return
         
-        if not handlers:
-            return  # No handlers for this event
+        # Fast path: single handler, no wildcard - direct await is faster
+        if not self._wildcard and len(event_handlers) == 1:
+            try:
+                await event_handlers[0](event)
+            except Exception as e:
+                # Log handler errors but don't propagate to prevent cascading failures
+                log_error(
+                    'aioresilience.events.global_bus',
+                    e,
+                    event_type=event.event_type.value,
+                    handler_count=1
+                )
+            return
         
-        # Execute all handlers concurrently
-        # Use return_exceptions=True to prevent one failure from stopping others
+        # Use generator expressions directly - avoids intermediate list allocation
         await asyncio.gather(
-            *[self._safe_call(handler, event) for handler in handlers],
-            return_exceptions=True
+            *(self._safe_call(h, event) for h in event_handlers),
+            *(self._safe_call(h, event) for h in self._wildcard)
         )
     
     async def _safe_call(self, handler: Callable, event: ResilienceEvent):
         """Safely call handler with error handling"""
         try:
             await handler(event)
-        except Exception:
-            # Silently ignore handler errors to prevent cascading failures
-            # In production, you might want to log this
-            pass
+        except Exception as e:
+            # Log handler errors but don't propagate to prevent cascading failures
+            log_error(
+                'aioresilience.events.global_bus',
+                e,
+                handler=getattr(handler, '__name__', 'unknown'),
+                event_type=event.event_type.value
+            )
     
     def clear(self):
         """Remove all handlers and deactivate bus"""

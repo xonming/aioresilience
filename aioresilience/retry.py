@@ -6,16 +6,16 @@ Provides retry logic with exponential backoff, jitter, and configurable retry po
 
 import asyncio
 import functools
-import logging
 import random
 import time
-from dataclasses import dataclass, field
+from typing import Optional, Callable, TypeVar, Any, Union, Type
 from enum import Enum
-from typing import Any, Callable, Optional, Type, Union
+from dataclasses import dataclass, field
 
 from .events import EventEmitter, PatternType, EventType, RetryEvent
+from .logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class RetryStrategy(Enum):

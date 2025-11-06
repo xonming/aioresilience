@@ -13,7 +13,13 @@ from sanic.response import json as sanic_json
 from .utils import get_client_ip
 
 
-def circuit_breaker_route(circuit_breaker):
+def circuit_breaker_route(
+    circuit_breaker,
+    error_message: str = "Service temporarily unavailable",
+    status_code: int = 503,
+    retry_after: Optional[int] = None,
+    include_info: bool = True,
+):
     """
     Decorator to protect Sanic routes with circuit breaker.
     
@@ -35,14 +41,15 @@ def circuit_breaker_route(circuit_breaker):
         async def wrapper(request, *args, **kwargs):
             # Check if circuit allows execution
             if not await circuit_breaker.can_execute():
+                content = {"error": error_message}
+                if include_info:
+                    content["circuit"] = circuit_breaker.name
+                    content["state"] = str(circuit_breaker.get_state())
+                
                 return sanic_json(
-                    {
-                        "error": "Service temporarily unavailable",
-                        "circuit": circuit_breaker.name,
-                        "state": str(circuit_breaker.get_state())
-                    },
-                    status=503,
-                    headers={"Retry-After": str(int(circuit_breaker.recovery_timeout))}
+                    content,
+                    status=status_code,
+                    headers={"Retry-After": str(retry_after if retry_after is not None else int(circuit_breaker.recovery_timeout))}
                 )
             
             try:
@@ -52,14 +59,21 @@ def circuit_breaker_route(circuit_breaker):
             except Exception as e:
                 return sanic_json(
                     {"error": "Service error", "detail": str(e)},
-                    status=503
+                    status=status_code
                 )
         
         return wrapper
     return decorator
 
 
-def rate_limit_route(rate_limiter, rate: str, key_func: Optional[Callable] = None):
+def rate_limit_route(
+    rate_limiter,
+    rate: str,
+    key_func: Optional[Callable] = None,
+    error_message: str = "Rate limit exceeded",
+    status_code: int = 429,
+    retry_after: int = 60,
+):
     """
     Decorator to apply rate limiting to Sanic routes.
     
@@ -88,9 +102,9 @@ def rate_limit_route(rate_limiter, rate: str, key_func: Optional[Callable] = Non
             # Check rate limit
             if not await rate_limiter.check_rate_limit(key, rate):
                 return sanic_json(
-                    {"error": f"Rate limit exceeded: {rate}"},
-                    status=429,
-                    headers={"Retry-After": "60"}
+                    {"error": f"{error_message}: {rate}"},
+                    status=status_code,
+                    headers={"Retry-After": str(retry_after)}
                 )
             
             return await func(request, *args, **kwargs)
@@ -99,7 +113,11 @@ def rate_limit_route(rate_limiter, rate: str, key_func: Optional[Callable] = Non
     return decorator
 
 
-def timeout_route(timeout_seconds: float):
+def timeout_route(
+    timeout_seconds: float,
+    error_message: str = "Request exceeded timeout",
+    status_code: int = 408,
+):
     """
     Decorator to enforce timeout on Sanic routes.
     
@@ -126,15 +144,20 @@ def timeout_route(timeout_seconds: float):
                 return result
             except asyncio.TimeoutError:
                 return sanic_json(
-                    {"error": f"Request exceeded timeout of {timeout_seconds}s"},
-                    status=408
+                    {"error": f"{error_message} of {timeout_seconds}s"},
+                    status=status_code
                 )
         
         return wrapper
     return decorator
 
 
-def bulkhead_route(bulkhead):
+def bulkhead_route(
+    bulkhead,
+    error_message: str = "Service at capacity",
+    status_code: int = 503,
+    retry_after: int = 10,
+):
     """
     Decorator to apply bulkhead pattern to Sanic routes.
     
@@ -159,9 +182,9 @@ def bulkhead_route(bulkhead):
                 return result
             except Exception as e:
                 return sanic_json(
-                    {"error": "Service at capacity", "detail": str(e)},
-                    status=503,
-                    headers={"Retry-After": "10"}
+                    {"error": error_message, "detail": str(e)},
+                    status=status_code,
+                    headers={"Retry-After": str(retry_after)}
                 )
         
         return wrapper
@@ -190,8 +213,8 @@ def with_fallback_route(fallback_value: Any):
                 return await func(request, *args, **kwargs)
             except Exception as e:
                 # Log the error
-                import logging
-                logger = logging.getLogger(__name__)
+                from ...logging import get_logger
+                logger = get_logger(__name__)
                 logger.error(f"Route failed, using fallback: {e}")
                 
                 # Return fallback value
@@ -199,6 +222,92 @@ def with_fallback_route(fallback_value: Any):
                     return await fallback_value(request) if asyncio.iscoroutinefunction(fallback_value) else fallback_value(request)
                 else:
                     return sanic_json(fallback_value)
+        
+        return wrapper
+    return decorator
+
+
+def backpressure_route(
+    backpressure,
+    timeout: float = 5.0,
+    error_message: str = "System under backpressure",
+    status_code: int = 503,
+    retry_after: int = 5,
+):
+    """
+    Decorator to apply backpressure management to Sanic routes.
+    
+    Example:
+        from sanic import Sanic, json
+        from aioresilience import BackpressureManager
+        from aioresilience.integrations.sanic import backpressure_route
+        
+        app = Sanic("MyApp")
+        bp = BackpressureManager(max_pending=1000)
+        
+        @app.get("/api/data")
+        @backpressure_route(bp)
+        async def get_data(request):
+            return json({"data": "..."})
+    """
+    def decorator(func: Callable) -> Callable:
+        @functools.wraps(func)
+        async def wrapper(request, *args, **kwargs):
+            if not await backpressure.acquire(timeout=timeout):
+                return sanic_json(
+                    {"error": error_message},
+                    status=status_code,
+                    headers={"Retry-After": str(retry_after)}
+                )
+            
+            try:
+                return await func(request, *args, **kwargs)
+            finally:
+                await backpressure.release()
+        
+        return wrapper
+    return decorator
+
+
+def adaptive_concurrency_route(
+    limiter,
+    error_message: str = "Concurrency limit reached",
+    status_code: int = 503,
+    retry_after: int = 1,
+):
+    """
+    Decorator to apply adaptive concurrency limiting to Sanic routes.
+    
+    Example:
+        from sanic import Sanic, json
+        from aioresilience import AdaptiveConcurrencyLimiter
+        from aioresilience.integrations.sanic import adaptive_concurrency_route
+        
+        app = Sanic("MyApp")
+        limiter = AdaptiveConcurrencyLimiter(initial_limit=100)
+        
+        @app.get("/api/data")
+        @adaptive_concurrency_route(limiter)
+        async def get_data(request):
+            return json({"data": "..."})
+    """
+    def decorator(func: Callable) -> Callable:
+        @functools.wraps(func)
+        async def wrapper(request, *args, **kwargs):
+            if not await limiter.acquire():
+                return sanic_json(
+                    {"error": error_message},
+                    status=status_code,
+                    headers={"Retry-After": str(retry_after)}
+                )
+            
+            success = False
+            try:
+                result = await func(request, *args, **kwargs)
+                success = True
+                return result
+            finally:
+                await limiter.release(success=success)
         
         return wrapper
     return decorator

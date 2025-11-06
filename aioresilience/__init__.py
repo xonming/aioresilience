@@ -13,6 +13,8 @@ Core Features (No Optional Dependencies):
 - Adaptive Concurrency - Auto-adjust based on success rate
 - Basic Load Shedding - Request count limits
 - Local Rate Limiting - In-memory rate limiting
+- Event System - Local and global event handlers for observability
+- Flexible Logging - Silent by default, supports any logging framework
 
 Optional Features (Require Installation):
 - System Load Shedding - CPU/memory monitoring (requires psutil)
@@ -28,6 +30,12 @@ Usage:
     
     # Default implementations
     from aioresilience import RateLimiter, LoadShedder
+    
+    # Event system
+    from aioresilience import global_bus, EventType
+    
+    # Logging configuration
+    from aioresilience import configure_logging, set_error_handler
     
     # Explicit implementations
     from aioresilience.rate_limiting import LocalRateLimiter, RedisRateLimiter
@@ -67,7 +75,7 @@ from .timeout import (
     timeout,
     with_timeout,
     with_deadline,
-    TimeoutError,
+    OperationTimeoutError,
 )
 
 from .bulkhead import (
@@ -116,6 +124,14 @@ from .events import (
     FallbackEvent,
 )
 
+# Logging Configuration
+from .logging import (
+    configure_logging,
+    set_error_handler,
+    disable_logging,
+    is_logging_enabled,
+)
+
 __all__ = [
     # Circuit Breaker
     "CircuitBreaker",
@@ -138,7 +154,7 @@ __all__ = [
     "timeout",
     "with_timeout",
     "with_deadline",
-    "TimeoutError",
+    "OperationTimeoutError",
     
     # Bulkhead
     "Bulkhead",
@@ -185,6 +201,12 @@ __all__ = [
     "RetryEvent",
     "TimeoutEvent",
     "FallbackEvent",
+    
+    # Logging Configuration
+    "configure_logging",
+    "set_error_handler",
+    "disable_logging",
+    "is_logging_enabled",
 ]
 
 __version__ = "0.1.0"

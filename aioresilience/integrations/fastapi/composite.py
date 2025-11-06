@@ -5,7 +5,6 @@ Combines multiple resilience patterns into a single middleware.
 """
 
 import asyncio
-import logging
 from typing import Callable, Optional
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -16,9 +15,14 @@ from starlette.status import (
 )
 from starlette.responses import JSONResponse
 
+from ...circuit_breaker import CircuitBreaker
+from ...load_shedding import BasicLoadShedder
+from ...rate_limiting import LocalRateLimiter
+from ...logging import get_logger
+
 from .utils import get_client_ip
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class ResilienceMiddleware(BaseHTTPMiddleware):

@@ -9,11 +9,12 @@ Dependencies: None (pure Python async)
 import asyncio
 from typing import Optional, Callable, Any
 from functools import wraps
-import logging
+from typing import Optional, Callable, Any
 
 from .events import EventEmitter, PatternType, EventType, LoadShedderEvent
+from .logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class BackpressureManager:

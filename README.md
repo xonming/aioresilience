@@ -20,7 +20,7 @@ The advantage is that you have the choice to select the decorators you need and 
 aioresilience requires Python 3.9+.
 
 ```python
-from aioresilience import CircuitBreaker, RateLimiter, LoadShedder
+from aioresilience import CircuitBreaker, RateLimiter, LoadShedder, circuit_breaker, with_load_shedding
 
 # Create a CircuitBreaker with default configuration
 circuit = CircuitBreaker(name="backendService", failure_threshold=5)
@@ -31,19 +31,21 @@ rate_limiter = RateLimiter(name="backendService")
 # Create a LoadShedder with default configuration
 load_shedder = LoadShedder(max_requests=1000)
 
-async def backend_call():
-    return await backend_service.do_something()
+# Example: Your backend service call
+async def call_external_api():
+    # Simulated API call
+    import httpx
+    async with httpx.AsyncClient() as client:
+        response = await client.get("https://api.example.com/data")
+        return response.json()
 
-# Decorate your call to backend_service.do_something()
-# with a Circuit Breaker, Rate Limiter and Load Shedder
-from aioresilience import circuit_breaker, with_load_shedding
-
+# Decorate your function with Circuit Breaker and Load Shedding
 @circuit_breaker("backendService", failure_threshold=5)
 @with_load_shedding(load_shedder, priority="normal")
 async def decorated_call(user_id: str):
     # Check rate limit
     if await rate_limiter.check_rate_limit(user_id, "100/minute"):
-        return await backend_service.do_something()
+        return await call_external_api()
     else:
         raise Exception("Rate limit exceeded")
 
@@ -53,9 +55,8 @@ try:
 except Exception as e:
     result = "Fallback value"
 
-# When you don't want to decorate your function,
-# but just execute it and protect the call by a CircuitBreaker
-result = await circuit.call(backend_call)
+# Or call directly through the circuit breaker
+result = await circuit.call(call_external_api)
 ```
 
 > **Note:** With aioresilience you don't have to go all-in, you can [**pick what you need**](https://pypi.org/project/aioresilience/).
@@ -64,6 +65,7 @@ result = await circuit.call(backend_call)
 
 - **9 Resilience Patterns** - Circuit Breaker, Retry, Timeout, Bulkhead, Fallback, Rate Limiter, Load Shedder, Backpressure, Adaptive Concurrency
 - **Event System** - Comprehensive observability with local and global event handlers
+- **Flexible Logging** - Silent by default, supports any logging framework (loguru, structlog, etc.)
 - **Async-First** - Built for asyncio from the ground up
 - **Decorator & Context Manager** - Flexible API styles
 - **Type Hints** - Full PEP 484 type annotations
@@ -190,6 +192,115 @@ async def log_all_events(event):
 
 See [examples/events_example.py](examples/events_example.py) for complete examples.
 
+## Logging Configuration
+
+aioresilience follows Python library best practices with **silent logging by default** (NullHandler). This gives you complete control over how errors and operational logs are handled.
+
+### Default Behavior (Silent)
+
+By default, aioresilience emits no logs:
+
+```python
+from aioresilience import CircuitBreaker
+
+# No logs are emitted - library is silent by default
+circuit = CircuitBreaker("api")
+```
+
+### Enable Standard Python Logging
+
+Configure standard Python logging for aioresilience:
+
+```python
+import logging
+from aioresilience import configure_logging
+
+# Enable logging with DEBUG level
+configure_logging(logging.DEBUG)
+
+# Now you'll see logs from aioresilience
+circuit = CircuitBreaker("api")
+```
+
+### Custom Logging Framework Integration
+
+Use **any** logging framework (loguru, structlog, etc.) with the error handler:
+
+#### With Loguru
+
+```python
+from loguru import logger
+from aioresilience import set_error_handler
+
+# Route aioresilience errors to loguru
+set_error_handler(
+    lambda name, exc, ctx: logger.error(
+        f"[{name}] {exc.__class__.__name__}: {exc}",
+        **ctx
+    )
+)
+```
+
+#### With Structlog
+
+```python
+import structlog
+from aioresilience import set_error_handler
+
+log = structlog.get_logger()
+
+set_error_handler(
+    lambda name, exc, ctx: log.error(
+        "aioresilience_error",
+        module=name,
+        exception_type=exc.__class__.__name__,
+        exception=str(exc),
+        **ctx
+    )
+)
+```
+
+### Custom Format
+
+```python
+from aioresilience import configure_logging
+import logging
+
+configure_logging(
+    level=logging.INFO,
+    format_string='%(asctime)s [%(name)s] %(levelname)s: %(message)s'
+)
+```
+
+### Disable Logging
+
+```python
+from aioresilience import disable_logging
+
+# Explicitly disable all logging (already default)
+disable_logging()
+```
+
+### Check Logging Status
+
+```python
+from aioresilience import is_logging_enabled
+
+if is_logging_enabled():
+    print("Logging is configured")
+else:
+    print("Logging is silent")
+```
+
+### Logging API Reference
+
+| Function | Description |
+|----------|-------------|
+| `configure_logging(level, handler, format_string)` | Enable standard Python logging |
+| `set_error_handler(handler)` | Set custom error handler for any framework |
+| `disable_logging()` | Reset to silent state (NullHandler) |
+| `is_logging_enabled()` | Check if logging is configured |
+
 ## Usage Examples
 
 ### Circuit Breaker
@@ -198,6 +309,7 @@ The following example shows how to decorate an async function with a Circuit Bre
 
 ```python
 import asyncio
+import httpx
 from aioresilience import CircuitBreaker, circuit_breaker
 
 # Simulates a Backend Service
@@ -287,6 +399,7 @@ for name, metrics in all_metrics.items():
 The following example shows how to restrict the calling rate to not be higher than 10 requests per second.
 
 ```python
+import asyncio
 from aioresilience import RateLimiter
 
 # Create a RateLimiter (local/in-memory)
@@ -296,22 +409,21 @@ rate_limiter = RateLimiter(name="backendName")
 async def handle_request(user_id: str):
     if await rate_limiter.check_rate_limit(user_id, "10/second"):
         # Request is within rate limit
-        return await backend_service.do_something()
+        return {"status": "success", "data": "..."}
     else:
         # Rate limit exceeded
         raise Exception("Rate limit exceeded")
 
-# First call succeeds
-try:
-    result = await handle_request("user_123")
-    print("Request successful")
-except Exception as e:
-    print(f"Request failed: {e}")
-
-# If you make 11 calls in one second, the 11th will fail
-import asyncio
-
+# Example: Testing rate limits
 async def test_rate_limit():
+    # First call succeeds
+    try:
+        result = await handle_request("user_123")
+        print("Request successful")
+    except Exception as e:
+        print(f"Request failed: {e}")
+    
+    # If you make 11 calls in one second, the 11th will fail
     for i in range(11):
         try:
             result = await handle_request("user_123")
@@ -319,6 +431,7 @@ async def test_rate_limit():
         except Exception as e:
             print(f"Call {i+1} failed: {e}")
 
+# Run the test
 asyncio.run(test_rate_limit())
 ```
 
@@ -582,10 +695,10 @@ async def slow_operation():
     await asyncio.sleep(10.0)
     return "result"
 
-# Will raise TimeoutError after 5 seconds
+# Will raise OperationTimeoutError after 5 seconds
 try:
     result = await manager.execute(slow_operation)
-except TimeoutError:
+except OperationTimeoutError:
     print("Operation timed out")
 
 # Or use the decorator
@@ -618,7 +731,7 @@ async def process_request():
     return data2
 
 # Or use convenience function
-result = await with_deadline(fetch_data(), deadline)
+result = await with_deadline(fetch_data, deadline)
 ```
 
 ### Bulkhead Pattern
@@ -639,11 +752,16 @@ db_bulkhead = Bulkhead(
 async def query_database(query: str):
     async with db_bulkhead:
         # Only 10 of these can run concurrently
-        result = await db.execute(query)
+        # Your database query here
+        result = {"query": query, "status": "success"}
         return result
 
-# Or use as a function executor
-result = await db_bulkhead.execute(db.execute, query)
+# Or use as a function executor with a callable
+async def execute_query(query: str):
+    # Your database logic here
+    return {"query": query, "status": "success"}
+
+result = await db_bulkhead.execute(execute_query, "SELECT * FROM users")
 
 # Or use the decorator
 @bulkhead(max_concurrent=5, max_waiting=10)
@@ -666,6 +784,19 @@ Manage multiple resource pools:
 ```python
 from aioresilience import get_bulkhead
 
+# Define your operations
+async def call_api():
+    # Your API call logic
+    return {"status": "success"}
+
+async def query_db():
+    # Your database query logic
+    return {"rows": []}
+
+async def get_cache():
+    # Your cache operation logic
+    return {"cached": True}
+
 # Get or create named bulkheads
 api_bulkhead = await get_bulkhead("external_api", max_concurrent=10)
 db_bulkhead = await get_bulkhead("database", max_concurrent=20)
@@ -682,24 +813,29 @@ await cache_bulkhead.execute(get_cache)
 Provide alternative responses when operations fail:
 
 ```python
+import httpx
 from aioresilience import fallback, chained_fallback, with_fallback
 
 # Simple static fallback
 @fallback([])
 async def fetch_items():
-    response = await api.get_items()
-    return response.json()
+    async with httpx.AsyncClient() as client:
+        response = await client.get("https://api.example.com/items")
+        return response.json()
 
 # If fetch_items fails, returns empty list []
 
 # Fallback with callable
 @fallback(lambda: {"status": "unavailable"})
 async def get_service_status():
-    return await api.get_status()
+    async with httpx.AsyncClient() as client:
+        response = await client.get("https://api.example.com/status")
+        return response.json()
 
 # Async fallback function
 async def get_cached_data(*args, **kwargs):
-    return await cache.get("user_data")
+    # Simulated cache lookup
+    return {"cached": True, "data": "cached_user_data"}
 
 @fallback(get_cached_data)
 async def fetch_user_data(user_id: str):
@@ -715,8 +851,12 @@ async def fetch_user_data(user_id: str):
 Multiple fallback strategies in sequence:
 
 ```python
+import httpx
+from aioresilience import chained_fallback
+
 async def get_from_cache(user_id):
-    return await cache.get(f"user:{user_id}")
+    # Simulated cache lookup
+    return {"cached": True, "user_id": user_id}
 
 async def get_from_backup_api(user_id):
     async with httpx.AsyncClient() as client:
@@ -759,33 +899,84 @@ async def fetch_critical_data():
 
 ## Framework Integrations
 
-aioresilience provides seamless integration with async Python web frameworks. See [INTEGRATIONS.md](INTEGRATIONS.md) for comprehensive guides.
+aioresilience provides **fully configurable** middleware and decorators for FastAPI, Sanic, and aiohttp with zero hardcoded values.
+
+**Key Features:**
+- ✅ All error messages configurable
+- ✅ All HTTP status codes configurable
+- ✅ All Retry-After headers configurable
+- ✅ Custom response factories for complete control
+- ✅ Performance optimized (O(1) path exclusions)
+- ✅ 100% backward compatible
+
+See [INTEGRATIONS.md](INTEGRATIONS.md) for comprehensive guides.
 
 ### FastAPI Integration
 
-FastAPI integration provides middleware and dependency injection utilities.
-
-### Load Shedding Middleware
+FastAPI provides **7 middleware** with full configurability:
 
 ```python
 from fastapi import FastAPI
-from aioresilience import LoadShedder
-from aioresilience.integrations.fastapi import LoadSheddingMiddleware
+from aioresilience import CircuitBreaker, LoadShedder, RetryPolicy
+from aioresilience.integrations.fastapi import (
+    CircuitBreakerMiddleware,
+    LoadSheddingMiddleware,
+    TimeoutMiddleware,
+    BulkheadMiddleware,
+    FallbackMiddleware,      # NEW
+    RetryMiddleware,         # NEW (limited - see note below)
+    ResilienceMiddleware,    # Composite
+    retry_route,             # NEW - Decorator for true retry behavior
+)
 
 app = FastAPI()
 
-# Create load shedder
-load_shedder = LoadShedder(max_requests=1000)
+# Circuit Breaker - Fully customizable
+app.add_middleware(
+    CircuitBreakerMiddleware,
+    circuit_breaker=CircuitBreaker("api", failure_threshold=5),
+    error_message="Service temporarily down",  # Custom message
+    status_code=503,                           # Custom status
+    retry_after=30,                            # Custom retry delay
+    include_circuit_info=False,                # Hide internal details
+    exclude_paths={"/health", "/metrics"},     # O(1) set lookup
+)
 
-# Add middleware
-app.add_middleware(LoadSheddingMiddleware, load_shedder=load_shedder)
+# Load Shedding - Configurable
+app.add_middleware(
+    LoadSheddingMiddleware,
+    load_shedder=LoadShedder(max_requests=1000),
+    error_message="Too busy - please retry",
+    retry_after=10,
+    priority_header="X-Request-Priority",      # Custom header name
+    default_priority="normal",
+)
+
+# Timeout - Configurable
+app.add_middleware(
+    TimeoutMiddleware,
+    timeout=30.0,
+    error_message="Request took too long",
+    status_code=408,
+)
+
+# Fallback - NEW
+app.add_middleware(
+    FallbackMiddleware,
+    fallback_response={"status": "degraded", "data": []},
+    log_errors=True,
+)
+
+# Retry - Use route-level decorator (recommended)
+# Note: RetryMiddleware has limitations due to Starlette's call_next() restrictions
+# For true retry behavior, use the decorator on specific routes
+from aioresilience.integrations.fastapi import retry_route
 
 @app.get("/api/data")
+@retry_route(max_attempts=3, initial_delay=1.0)
 async def get_data():
-    return {"data": "your data here"}
-
-# Requests will be automatically shed when overloaded
-# Returns 503 Service Unavailable with Retry-After header
+    # Will retry on failure
+    return {"data": "..."}
 ```
 
 ### Rate Limiting Dependency
@@ -798,15 +989,26 @@ from aioresilience.integrations.fastapi import rate_limit_dependency
 app = FastAPI()
 rate_limiter = RateLimiter(name="api")
 
-@app.get(
-    "/api/data",
-    dependencies=[Depends(rate_limit_dependency(rate_limiter, "100/minute"))]
-)
+# Basic usage
+@app.get("/api/data", dependencies=[
+    Depends(rate_limit_dependency(rate_limiter, "100/minute"))
+])
 async def get_data():
-    return {"data": "your data here"}
+    return {"data": "..."}
 
-# Rate limiting is automatically applied per client IP
-# Returns 429 Too Many Requests when limit exceeded
+# Fully customized
+@app.get("/api/premium", dependencies=[
+    Depends(rate_limit_dependency(
+        rate_limiter,
+        "1000/minute",
+        error_message="Premium tier limit exceeded",
+        status_code=429,
+        retry_after=30,
+        key_func=lambda req: req.headers.get("X-User-ID"),  # Custom key
+    ))
+])
+async def premium_data():
+    return {"data": "premium"}
 ```
 
 ### Custom Client IP Extraction
@@ -826,72 +1028,130 @@ async def custom_middleware(request: Request, call_next):
 
 ### Sanic Integration
 
-Sanic is async-native, providing maximum performance with zero overhead.
+Sanic is async-native with **fully configurable** middleware and decorators.
 
 ```python
 from sanic import Sanic, json
-from aioresilience import CircuitBreaker, RateLimiter
+from aioresilience import CircuitBreaker, RateLimiter, LoadShedder
 from aioresilience.integrations.sanic import (
     setup_resilience,
     circuit_breaker_route,
+    rate_limit_route,
+    timeout_route,
+    bulkhead_route,
 )
 
 app = Sanic("MyApp")
 
-# Global resilience setup
+# Global resilience setup - Fully configurable
 setup_resilience(
     app,
     circuit_breaker=CircuitBreaker(name="api"),
     rate_limiter=RateLimiter(name="api"),
     rate="1000/minute",
-    timeout=30.0
+    load_shedder=LoadShedder(max_requests=500),
+    timeout=30.0,
+    # All customizable
+    exclude_paths={"/health", "/metrics", "/admin"},
+    circuit_error_message="API temporarily unavailable",
+    circuit_status_code=503,
+    circuit_retry_after=60,
+    rate_error_message="Too many requests",
+    rate_retry_after=120,
+    load_error_message="Server overloaded",
+    priority_header="X-Priority",
 )
 
-# Or use route decorators
+# Or use route decorators - Also configurable
 @app.get("/api/data")
-@circuit_breaker_route(CircuitBreaker(name="api"))
+@circuit_breaker_route(
+    CircuitBreaker(name="api"),
+    error_message="Service down",
+    status_code=503,
+    retry_after=30,
+    include_info=False,  # Hide circuit details
+)
 async def get_data(request):
     return json({"data": "..."})
+
+@app.get("/api/limited")
+@rate_limit_route(
+    RateLimiter(name="api"),
+    "100/minute",
+    error_message="Rate limit hit",
+    retry_after=60,
+)
+async def limited_endpoint(request):
+    return json({"data": "limited"})
 ```
 
 ### aiohttp Integration
 
-Clean middleware and decorator support for aiohttp applications.
+Clean middleware and decorators with **full configurability** for aiohttp.
 
 ```python
 from aiohttp import web
-from aioresilience import CircuitBreaker, LoadShedder
+from aioresilience import CircuitBreaker, RateLimiter, LoadShedder
 from aioresilience.integrations.aiohttp import (
     create_resilience_middleware,
     circuit_breaker_handler,
+    rate_limit_handler,
+    timeout_handler,
 )
 
 app = web.Application()
 
-# Add resilience middleware
+# Add resilience middleware - Fully configurable
 app.middlewares.append(create_resilience_middleware(
     circuit_breaker=CircuitBreaker(name="api"),
+    rate_limiter=RateLimiter(name="api"),
+    rate="1000/minute",
     load_shedder=LoadShedder(max_requests=500),
-    timeout=30.0
+    timeout=30.0,
+    # All customizable
+    exclude_paths={"/health", "/metrics"},
+    circuit_error_message="API down",
+    circuit_status_code=503,
+    circuit_retry_after=45,
+    rate_error_message="Limit reached",
+    rate_retry_after=90,
+    load_error_message="Too busy",
+    priority_header="X-Priority",
 ))
 
-# Or use handler decorators
-@circuit_breaker_handler(CircuitBreaker(name="api"))
+# Or use handler decorators - Also configurable
+@circuit_breaker_handler(
+    CircuitBreaker(name="api"),
+    error_message="Service unavailable",
+    status_code=503,
+    retry_after=30,
+    include_info=False,
+)
 async def get_data(request):
     return web.json_response({"data": "..."})
 
+@rate_limit_handler(
+    RateLimiter(name="api"),
+    "100/minute",
+    error_message="Rate limit exceeded",
+    retry_after=60,
+)
+async def limited_data(request):
+    return web.json_response({"data": "limited"})
+
 app.router.add_get("/api/data", get_data)
+app.router.add_get("/api/limited", limited_data)
 ```
 
 For more details, see [INTEGRATIONS.md](INTEGRATIONS.md).
 
-## Event Consumption
+## Event System
 
-Circuit Breaker components emit events that can be consumed for logging, monitoring, and metrics.
+All resilience patterns emit events for logging, monitoring, and metrics. The event system supports both local event handlers (per pattern instance) and a global event bus for centralized monitoring.
 
-### Circuit Breaker Events
+### Local Event Handlers
 
-A `CircuitBreakerEvent` can be a state transition, successful call, recorded error, or circuit reset.
+Each pattern has its own `EventEmitter` accessible via the `.events` attribute:
 
 ```python
 from aioresilience import CircuitBreaker
@@ -901,39 +1161,120 @@ logger = logging.getLogger(__name__)
 
 circuit = CircuitBreaker(name="backend", failure_threshold=5)
 
-# Monitor circuit breaker metrics
-async def monitor_circuit():
-    while True:
-        metrics = circuit.get_metrics()
-        logger.info(f"Circuit {metrics['name']}: "
-                   f"state={metrics['state']}, "
-                   f"failures={metrics['consecutive_failures']}, "
-                   f"success_rate={metrics['failure_rate']:.2%}")
-        await asyncio.sleep(10)
+# Register event handlers using decorator syntax
+@circuit.events.on("state_change")
+async def on_state_change(event):
+    logger.warning(f"Circuit {event.name} changed state: "
+                   f"{event.metadata['from_state']} → {event.metadata['to_state']}")
 
-# Start monitoring
-asyncio.create_task(monitor_circuit())
+@circuit.events.on("call_success")
+async def on_success(event):
+    logger.debug(f"Circuit {event.name}: successful call")
+
+@circuit.events.on("call_failure")
+async def on_failure(event):
+    logger.error(f"Circuit {event.name}: call failed - {event.metadata.get('error')}")
+
+# Or register handlers directly
+async def on_circuit_opened(event):
+    logger.critical(f"⚠️  Circuit {event.name} OPENED! System degraded.")
+
+circuit.events.on("circuit_opened", on_circuit_opened)
+
+# Wildcard handler to capture all events
+@circuit.events.on("*")
+async def log_all_events(event):
+    logger.info(f"Event: {event.event_type} from {event.name}")
 ```
 
-### Load Shedder Metrics
+### Global Event Bus
+
+Monitor events across all patterns using the global event bus:
 
 ```python
-# Get load shedder statistics
+from aioresilience import CircuitBreaker, RateLimiter, Bulkhead
+from aioresilience.events import event_bus
+import logging
+
+logger = logging.getLogger(__name__)
+
+# Register global event handlers
+@event_bus.on("state_change")
+async def monitor_all_state_changes(event):
+    logger.warning(f"[{event.pattern_type}] {event.name}: "
+                   f"{event.metadata['from_state']} → {event.metadata['to_state']}")
+
+@event_bus.on("rate_limit_exceeded")
+async def alert_on_rate_limit(event):
+    logger.warning(f"Rate limit exceeded for key: {event.metadata.get('key')}")
+
+@event_bus.on("*")
+async def collect_metrics(event):
+    # Send to monitoring system (Prometheus, DataDog, etc.)
+    metrics_collector.record(
+        event_type=event.event_type,
+        pattern=event.pattern_type,
+        timestamp=event.timestamp
+    )
+
+# All patterns emit to both local handlers AND the global bus
+circuit = CircuitBreaker(name="api")
+rate_limiter = RateLimiter(name="api")
+bulkhead = Bulkhead(max_concurrent=100)
+```
+
+### Event Types by Pattern
+
+**Circuit Breaker:**
+- `state_change` - State transitions (CLOSED ↔ OPEN ↔ HALF_OPEN)
+- `circuit_opened` - Circuit opened due to failures
+- `circuit_closed` - Circuit recovered
+- `call_success` - Successful call
+- `call_failure` - Failed call
+
+**Rate Limiter:**
+- `rate_limit_exceeded` - Request rejected
+- `rate_limit_passed` - Request allowed
+
+**Bulkhead:**
+- `bulkhead_rejected` - Request rejected (full)
+- `bulkhead_accepted` - Request accepted
+
+**Load Shedder:**
+- `request_shed` - Request shed due to overload
+- `request_accepted` - Request accepted
+
+**Timeout:**
+- `timeout_exceeded` - Operation timed out
+- `timeout_success` - Completed within timeout
+
+**Fallback:**
+- `fallback_triggered` - Fallback value returned
+
+**Retry:**
+- `retry_attempt` - Retry attempt started
+- `retry_success` - Retry succeeded
+- `retry_exhausted` - All retries failed
+
+### Getting Metrics
+
+You can still poll metrics synchronously when needed:
+
+```python
+# Circuit Breaker metrics
+metrics = circuit.get_metrics()
+print(f"State: {metrics['state']}, Failures: {metrics['consecutive_failures']}")
+
+# Load Shedder statistics
 stats = load_shedder.get_stats()
-print(f"Active requests: {stats['active_requests']}")
-print(f"Total shed: {stats['total_shed']}")
-print(f"Load level: {stats['load_level']}")
-print(f"Utilization: {stats['utilization']:.1f}%")
-```
+print(f"Active: {stats['active_requests']}, Shed: {stats['total_shed']}")
 
-### Rate Limiter Metrics
-
-```python
-# Get rate limiter statistics
+# Rate Limiter statistics
 stats = rate_limiter.get_stats()
 print(f"Active limiters: {stats['active_limiters']}")
-print(f"Type: {stats['type']}")
 ```
+
+For detailed examples, see `examples/events_example.py`.
 
 ## Architecture
 
@@ -1023,21 +1364,36 @@ aioresilience/
 
 ## Performance
 
-Overhead measurements on a typical development machine:
+aioresilience is designed for minimal overhead in production environments. All patterns use efficient async primitives and lock-free algorithms where possible.
 
-* **Circuit Breaker**: ~2-5µs per call
-* **Retry**: ~5-10µs per attempt (excluding backoff delays)
-* **Timeout**: ~3-8µs per operation
-* **Bulkhead**: ~2-5µs per acquire/release
-* **Fallback**: ~1-3µs per execution
-* **Rate Limiter (Local)**: ~10-20µs per check
-* **Rate Limiter (Redis)**: ~1-2ms per check (network dependent)
-* **Load Shedder (Basic)**: ~1-3µs per acquire/release
-* **Load Shedder (System)**: ~5-10µs per acquire/release (includes system metrics)
-* **Backpressure Manager**: ~2-4µs per acquire/release
-* **Adaptive Concurrency**: ~2-5µs per acquire/release
+**Recent Optimizations:**
+- ✅ Lazy event emission (only when listeners registered)
+- ✅ Conditional logging (format strings only when enabled)
+- ✅ O(1) path exclusions using set lookups
+- ✅ Cached listener checks (reduces per-request overhead)
+- ✅ Thread-safe state management with async locks
 
-> **Note:** These are rough estimates. Actual performance depends on your hardware and workload.
+**Benchmark Your Own System:**
+
+```bash
+# Sequential overhead (baseline)
+python benchmarks/benchmark_sequential.py
+
+# Concurrent overhead (realistic load)
+python benchmarks/benchmark_concurrent.py
+
+# With contention and failures
+python benchmarks/benchmark_concurrent.py --with-failures
+```
+
+See [`benchmarks/`](benchmarks/) directory for detailed benchmarking tools and methodology.
+
+**Design Goals:**
+- Microsecond-level overhead per operation
+- Minimal allocations and GC pressure  
+- Lock-free designs where possible
+- Efficient async/await integration
+- Support for 20,000+ requests/second in production APIs
 
 ## Roadmap
 

@@ -46,8 +46,13 @@ from .load_shedding import LoadSheddingMiddleware
 from .circuit_breaker import CircuitBreakerMiddleware
 from .timeout import TimeoutMiddleware
 from .bulkhead import BulkheadMiddleware
+from .fallback import FallbackMiddleware
+from .retry import RetryMiddleware
+from .backpressure import BackpressureMiddleware
+from .adaptive_concurrency import AdaptiveConcurrencyMiddleware
 from .composite import ResilienceMiddleware
 from .dependencies import rate_limit_dependency
+from .decorators import retry_route
 from .utils import get_client_ip
 
 __all__ = [
@@ -56,7 +61,13 @@ __all__ = [
     "CircuitBreakerMiddleware",
     "TimeoutMiddleware",
     "BulkheadMiddleware",
+    "FallbackMiddleware",
+    "RetryMiddleware",
+    "BackpressureMiddleware",
+    "AdaptiveConcurrencyMiddleware",
     "ResilienceMiddleware",
+    # Decorators
+    "retry_route",
     # Dependencies
     "rate_limit_dependency",
     # Utilities

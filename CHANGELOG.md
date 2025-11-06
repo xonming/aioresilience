@@ -7,11 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **FastAPI retry_route Decorator** - Recommended alternative to RetryMiddleware for FastAPI route-level retry logic
+- **Comprehensive Integration Tests** - 66 new tests for FastAPI, aiohttp, and Sanic integrations
+- **Test Coverage Improvements** - Increased overall coverage from 81.5% to 92.78% (+11.29%)
+  - Sanic decorators: 54% → 94% (+40%)
+  - aiohttp decorators: 53% → 87% (+34%)
+  - FastAPI middleware: Comprehensive coverage across all patterns
+
+### Changed
+- **Performance Optimizations**
+  - Circuit breaker: Lazy event emission (only emit when listeners present)
+  - Circuit breaker: Conditional logging to reduce overhead
+  - Added `has_listeners()` method to EventEmitter for efficient checks
+- **Benchmark Improvements**
+  - Relaxed flaky timing thresholds in high concurrency tests for CI stability
+  - Removed integration benchmarks (moved to separate repository)
+
+### Fixed
+- **Circuit Breaker Race Condition** - Removed unsafe fast path in `can_execute()` that could cause race conditions under high concurrency
+- **FastAPI Integration Documentation** - Updated docs to clarify RetryMiddleware limitations and recommend retry_route decorator
+
+### Documentation
+- **Fixed Event System Documentation** - Replaced outdated polling-based examples with correct event-driven system
+  - Updated "Event Consumption" section to show proper event handlers
+  - Added examples of local event handlers with `@pattern.events.on()` decorator
+  - Added examples of global event bus for centralized monitoring
+  - Documented all event types by pattern
+  - Added wildcard event handler examples
+- Updated README with performance optimizations and retry decorator usage
+- Added warnings about RetryMiddleware limitations due to Starlette's call_next() behavior
+- Removed outdated PERFORMANCE_ANALYSIS.md
+
 ### Planned Features
-- Retry policies with exponential backoff
-- Bulkhead pattern for resource isolation
-- Time limiters / deadlines
-- Enhanced fallback mechanisms
 - Django integration
 - Flask integration
 - Prometheus metrics exporter
@@ -22,6 +50,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 #### Core Features
+
+- **Error Handling Improvements**
+  - Renamed `TimeoutError` to `OperationTimeoutError` to avoid collision with Python builtin
+  - Added catch-all exception handler in CircuitBreaker to ensure all failures are tracked
+  - Fixed Bulkhead race condition in `_waiting_count` management
+  - Protected event emissions in finally blocks with exception handling
+  - Added comprehensive input validation to CircuitBreaker (name, thresholds, timeouts)
+  - Standardized error message formatting across all patterns
+  - All resource cleanup guaranteed even if event handlers fail
 
 - **Event System** [NEW]
   - Comprehensive event-driven observability for all resilience patterns
@@ -125,6 +162,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Improved error response format
 
 ### Changed
+
+#### Breaking Changes
+- **TimeoutError → OperationTimeoutError** (BREAKING)
+  - Custom `TimeoutError` renamed to `OperationTimeoutError` to avoid collision with Python builtin
+  - Migration: Replace all `from aioresilience import TimeoutError` with `from aioresilience import OperationTimeoutError`
+  - No behavioral changes - exception works identically
+  - Python's builtin `TimeoutError` now accessible without name collision
 
 #### API Changes
 - **CircuitBreaker**

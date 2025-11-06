@@ -7,11 +7,13 @@ Dependencies: None (pure Python async)
 """
 
 import asyncio
-import logging
+from dataclasses import dataclass
+from typing import Optional
 
 from .events import EventEmitter, PatternType, EventType, LoadShedderEvent
+from .logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class AdaptiveConcurrencyLimiter:

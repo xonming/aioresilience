@@ -7,14 +7,14 @@ Limits concurrent access to specific resources or operations.
 
 import asyncio
 import functools
-import logging
 import time
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
 from .events import EventEmitter, PatternType, EventType, BulkheadEvent
+from .logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class BulkheadFullError(Exception):
@@ -94,32 +94,35 @@ class Bulkhead:
     
     async def _try_acquire(self) -> bool:
         """Try to acquire a slot, respecting waiting limit"""
-        # First, try to acquire without waiting
-        if self._semaphore.locked():
-            # Semaphore is at capacity, check if we can wait
-            async with self._lock:
-                if self._waiting_count >= self.max_waiting:
-                    return False
-                self._waiting_count += 1
-            
-            try:
-                if self.timeout:
-                    await asyncio.wait_for(
-                        self._semaphore.acquire(),
-                        timeout=self.timeout
-                    )
-                else:
-                    await self._semaphore.acquire()
-                return True
-            except asyncio.TimeoutError:
-                return False
-            finally:
-                async with self._lock:
-                    self._waiting_count -= 1
-        else:
-            # Semaphore has capacity, acquire immediately
+        # Try to acquire immediately (fast path - no lock needed)
+        if not self._semaphore.locked():
             await self._semaphore.acquire()
+            # Update metrics atomically
+            async with self._lock:
+                self._metrics.total_requests += 1
             return True
+        
+        # Slow path: Semaphore at capacity, check if we can wait
+        async with self._lock:
+            if self._waiting_count >= self.max_waiting:
+                return False
+            self._waiting_count += 1
+            self._metrics.total_requests += 1  # Batch with waiting_count update
+        
+        try:
+            if self.timeout:
+                await asyncio.wait_for(
+                    self._semaphore.acquire(),
+                    timeout=self.timeout
+                )
+            else:
+                await self._semaphore.acquire()
+            return True
+        except asyncio.TimeoutError:
+            return False
+        finally:
+            async with self._lock:
+                self._waiting_count -= 1
     
     async def execute(
         self,
@@ -141,16 +144,14 @@ class Bulkhead:
         Raises:
             BulkheadFullError: If bulkhead is at capacity
         """
-        start_wait = time.time()
+        start_wait = time.perf_counter()  # Faster than time.time()
         
-        async with self._lock:
-            self._metrics.total_requests += 1
-        
-        # Try to acquire a slot
+        # Try to acquire a slot (metrics updated inside _try_acquire)
         acquired = await self._try_acquire()
         
         if not acquired:
             async with self._lock:
+                self._metrics.total_requests += 1
                 self._metrics.rejected_requests += 1
             
             # Emit bulkhead full event
@@ -173,9 +174,13 @@ class Bulkhead:
                 f"Bulkhead '{self.name}' is at capacity"
             )
         
-        wait_time = time.time() - start_wait
+        wait_time = time.perf_counter() - start_wait
+        
+        # Check if function is async (cache for fast path)
+        is_coroutine = asyncio.iscoroutinefunction(func)
         
         try:
+            # Batch all metrics updates into single lock acquisition
             async with self._lock:
                 self._metrics.current_active += 1
                 self._metrics.peak_active = max(
@@ -187,50 +192,59 @@ class Bulkhead:
                     self._metrics.average_wait_time = (
                         self._metrics.total_wait_time / self._metrics.total_requests
                     )
+                active_count_snapshot = self._metrics.current_active
             
-            # Emit slot acquired event
+            # Emit slot acquired event (outside lock)
             await self.events.emit(BulkheadEvent(
                 pattern_type=PatternType.BULKHEAD,
                 event_type=EventType.SLOT_ACQUIRED,
                 pattern_name=self.name,
-                active_count=self._metrics.current_active,
+                active_count=active_count_snapshot,
                 waiting_count=self._waiting_count,
                 max_concurrent=self.max_concurrent,
                 max_waiting=self.max_waiting,
             ))
             
             # Execute the function
-            if asyncio.iscoroutinefunction(func):
+            if is_coroutine:
                 result = await func(*args, **kwargs)
             else:
                 result = await asyncio.to_thread(func, *args, **kwargs)
             
+            # Batch success metric with release
             async with self._lock:
                 self._metrics.successful_requests += 1
+                self._metrics.current_active -= 1
+                active_count_after = self._metrics.current_active
+            
+            self._semaphore.release()
+            
+            # Emit slot released event (outside lock, in try/except)
+            try:
+                await self.events.emit(BulkheadEvent(
+                    pattern_type=PatternType.BULKHEAD,
+                    event_type=EventType.SLOT_RELEASED,
+                    pattern_name=self.name,
+                    active_count=active_count_after,
+                    waiting_count=self._waiting_count,
+                    max_concurrent=self.max_concurrent,
+                    max_waiting=self.max_waiting,
+                ))
+            except Exception as e:
+                logger.warning(f"Failed to emit slot released event: {e}")
             
             return result
             
-        finally:
+        except Exception:
+            # On exception, still need to release resources
             async with self._lock:
                 self._metrics.current_active -= 1
             self._semaphore.release()
-            
-            # Emit slot released event
-            await self.events.emit(BulkheadEvent(
-                pattern_type=PatternType.BULKHEAD,
-                event_type=EventType.SLOT_RELEASED,
-                pattern_name=self.name,
-                active_count=self._metrics.current_active,
-                waiting_count=self._waiting_count,
-                max_concurrent=self.max_concurrent,
-                max_waiting=self.max_waiting,
-            ))
+            raise
     
     async def __aenter__(self):
         """Async context manager entry"""
-        async with self._lock:
-            self._metrics.total_requests += 1
-        
+        # _try_acquire now handles total_requests increment
         acquired = await self._try_acquire()
         if not acquired:
             async with self._lock:

@@ -2,27 +2,28 @@
 
 **aioresilience** provides seamless integrations with major async Python web frameworks.
 
-## 📦 Available Integrations
+## Available Integrations
 
 | Framework | Status | Type | Performance |
 |-----------|--------|------|-------------|
-| **FastAPI / Starlette** | ✅ Complete | ASGI | Excellent |
-| **Sanic** | ✅ Complete | ASGI | Excellent |
-| **aiohttp** | ✅ Complete | ASGI | Excellent |
+| **FastAPI / Starlette** | Complete | ASGI | Excellent |
+| **Sanic** | Complete | ASGI | Excellent |
+| **aiohttp** | Complete | ASGI | Excellent |
 
 ---
 
-## 🚀 Quick Start by Framework
+## Quick Start by Framework
 
 ### FastAPI
 
 ```python
 from fastapi import FastAPI
-from aioresilience import LoadShedder, CircuitBreaker, RateLimiter, Bulkhead
+from aioresilience import LoadShedder, CircuitBreaker, RateLimiter, Bulkhead, RetryPolicy
 from aioresilience.integrations.fastapi import (
     LoadSheddingMiddleware,
     CircuitBreakerMiddleware,
     ResilienceMiddleware,  # Composite
+    retry_route,  # Route-level retry decorator (recommended)
 )
 
 app = FastAPI()
@@ -42,17 +43,21 @@ app.add_middleware(
     timeout=30.0
 )
 
+# Route-level retry (recommended for retry logic)
 @app.get("/api/data")
+@retry_route(RetryPolicy(max_attempts=3, initial_delay=0.1))
 async def get_data():
     return {"data": "..."}
 ```
 
 **Features:**
-- ✅ Modular middleware (separate files per pattern)
-- ✅ Composite middleware (combine multiple patterns)
-- ✅ Route-level decorators
-- ✅ Dependency injection support
-- ✅ Full async support
+- Modular middleware (separate files per pattern)
+- Composite middleware (combine multiple patterns)
+- Route-level decorators (including retry_route)
+- Dependency injection support
+- Full async support
+
+**Note:** For retry logic, use `retry_route` decorator instead of `RetryMiddleware` due to Starlette's `call_next()` limitations.
 
 **See:** `aioresilience/integrations/fastapi/README.md`
 
@@ -90,10 +95,10 @@ async def get_data(request):
 ```
 
 **Features:**
-- ✅ Full async support (no asyncio.run overhead)
-- ✅ Route decorators
-- ✅ Middleware setup
-- ✅ Maximum performance (async all the way)
+- Full async support (no asyncio.run overhead)
+- Route decorators
+- Middleware setup
+- Maximum performance (async all the way)
 
 **See:** `aioresilience/integrations/sanic/README.md`
 
@@ -132,35 +137,35 @@ web.run_app(app)
 ```
 
 **Features:**
-- ✅ Full async support
-- ✅ Handler decorators
-- ✅ Middleware factory
-- ✅ Clean aiohttp integration
+- Full async support
+- Handler decorators
+- Middleware factory
+- Clean aiohttp integration
 
 **See:** `aioresilience/integrations/aiohttp/README.md`
 
 ---
 
-## 📋 Feature Comparison
+## Feature Comparison
 
 | Feature | FastAPI | Sanic | aiohttp |
 |---------|---------|-------|---------|
-| **Circuit Breaker** | ✅ | ✅ | ✅ |
-| **Retry** | ✅* | ✅* | ✅* |
-| **Timeout** | ✅ | ✅ | ✅ |
-| **Bulkhead** | ✅ | ✅ | ✅ |
-| **Fallback** | ✅ | ✅ | ✅ |
-| **Rate Limiting** | ✅ | ✅ | ✅ |
-| **Load Shedding** | ✅ | ✅ | ✅ |
-| **Middleware** | ✅ | ✅ | ✅ |
-| **Decorators** | ✅ | ✅ | ✅ |
-| **Composite Patterns** | ✅ | ✅ | ✅ |
+| **Circuit Breaker** | Yes | Yes | Yes |
+| **Retry** | Yes* | Yes* | Yes* |
+| **Timeout** | Yes | Yes | Yes |
+| **Bulkhead** | Yes | Yes | Yes |
+| **Fallback** | Yes | Yes | Yes |
+| **Rate Limiting** | Yes | Yes | Yes |
+| **Load Shedding** | Yes | Yes | Yes |
+| **Middleware** | Yes | Yes | Yes |
+| **Decorators** | Yes | Yes | Yes |
+| **Composite Patterns** | Yes | Yes | Yes |
 
 *Available via decorators or manual integration
 
 ---
 
-## 🎯 Choosing the Right Pattern
+## Choosing the Right Pattern
 
 ### When to Use What
 

@@ -10,14 +10,15 @@ Dependencies:
 
 import asyncio
 import time
-from typing import Dict
+from typing import Dict, Optional
 from collections import OrderedDict
 from aiolimiter import AsyncLimiter
-import logging
+import asyncio
 
 from ..events import EventEmitter, PatternType, EventType, RateLimitEvent
+from ..logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class LocalRateLimiter:
@@ -74,9 +75,18 @@ class LocalRateLimiter:
         """
         limiter_key = f"{key}:{rate}"
         
+        # Fast path: check if limiter exists (lock-free read)
+        if limiter_key in self.limiters:
+            async with self._lock:
+                # Double-check inside lock and move to end
+                if limiter_key in self.limiters:
+                    self.limiters.move_to_end(limiter_key)
+                    return self.limiters[limiter_key]
+        
+        # Slow path: need to create limiter
         async with self._lock:
+            # Check again in case another coroutine created it
             if limiter_key in self.limiters:
-                # Move to end (most recently used)
                 self.limiters.move_to_end(limiter_key)
                 return self.limiters[limiter_key]
             
@@ -133,7 +143,7 @@ class LocalRateLimiter:
         try:
             limiter = await self.get_limiter(key, rate)
             
-            # Check capacity and acquire if available (non-blocking)
+            # Check capacity (non-blocking) then acquire
             if limiter.has_capacity():
                 await limiter.acquire()
                 self.logger.debug(f"Rate limit check passed for {key}: {rate}")

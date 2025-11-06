@@ -11,11 +11,11 @@ from typing import Optional, Callable, Any, TypeVar
 from dataclasses import dataclass
 from enum import Enum
 from functools import wraps
-import logging
 
 from .events import EventEmitter, PatternType, EventType, CircuitBreakerEvent
+from .logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 T = TypeVar('T')
 
@@ -107,7 +107,21 @@ class CircuitBreaker:
             timeout: Operation timeout in seconds
             half_open_max_calls: Max concurrent calls in half-open
         """
-        self.name = name
+        # Input validation
+        if not name or not name.strip():
+            raise ValueError("name must be a non-empty string")
+        if failure_threshold < 1:
+            raise ValueError("failure_threshold must be at least 1")
+        if recovery_timeout <= 0:
+            raise ValueError("recovery_timeout must be positive")
+        if success_threshold < 1:
+            raise ValueError("success_threshold must be at least 1")
+        if timeout is not None and timeout <= 0:
+            raise ValueError("timeout must be positive or None")
+        if half_open_max_calls < 1:
+            raise ValueError("half_open_max_calls must be at least 1")
+        
+        self.name = name.strip()
         self.failure_threshold = failure_threshold
         self.recovery_timeout = recovery_timeout
         self.expected_exception = expected_exception
@@ -123,9 +137,25 @@ class CircuitBreaker:
         
         # Event emitter for monitoring
         self.events = EventEmitter(pattern_name=name)
+        
+        # Performance optimization: cache whether we have event listeners
+        self._has_listeners = False
+        self._last_listener_check = 0.0
+    
+    def _check_has_listeners(self) -> bool:
+        """Check if we have event listeners (cached for performance)"""
+        current_time = time.time()
+        # Cache for 1 second to avoid checking on every request
+        if current_time - self._last_listener_check > 1.0:
+            self._has_listeners = self.events.has_listeners()
+            self._last_listener_check = current_time
+        return self._has_listeners
     
     async def _emit_state_change(self, old_state: CircuitState, new_state: CircuitState):
-        """Emit state change event"""
+        """Emit state change event (lazy - only if listeners exist)"""
+        if not self._check_has_listeners():
+            return  # Skip emission if no listeners
+        
         await self.events.emit(CircuitBreakerEvent(
             pattern_type=PatternType.CIRCUIT_BREAKER,
             event_type=EventType.STATE_CHANGE,
@@ -143,6 +173,8 @@ class CircuitBreaker:
         Returns:
             True if execution allowed, False otherwise
         """
+        # Always use lock for correctness - lockless check has TOCTOU race condition
+        # (Reading state + consecutive_failures without lock is unsafe)
         async with self._lock:
             if self.state == CircuitState.CLOSED:
                 return True
@@ -153,7 +185,9 @@ class CircuitBreaker:
                     self.state = CircuitState.HALF_OPEN
                     self.metrics.last_state_change = time.time()
                     self.half_open_calls = 0  # Reset counter
-                    logger.info(f"Circuit breaker '{self.name}': OPEN → HALF_OPEN")
+                    # Conditional logging: only log if enabled
+                    if logger.isEnabledFor(20):  # INFO level
+                        logger.info(f"Circuit breaker '{self.name}': OPEN → HALF_OPEN")
                     await self._emit_state_change(old_state, self.state)
                     return True
                 return False
@@ -168,15 +202,16 @@ class CircuitBreaker:
             self.metrics.consecutive_successes += 1
             self.metrics.consecutive_failures = 0
             
-            # Emit success event
-            await self.events.emit(CircuitBreakerEvent(
-                pattern_type=PatternType.CIRCUIT_BREAKER,
-                event_type=EventType.CALL_SUCCESS,
-                pattern_name=self.name,
-                old_state=self.state.value,
-                new_state=self.state.value,
-                success_count=self.metrics.consecutive_successes,
-            ))
+            # Emit success event (lazy)
+            if self._check_has_listeners():
+                await self.events.emit(CircuitBreakerEvent(
+                    pattern_type=PatternType.CIRCUIT_BREAKER,
+                    event_type=EventType.CALL_SUCCESS,
+                    pattern_name=self.name,
+                    old_state=self.state.value,
+                    new_state=self.state.value,
+                    success_count=self.metrics.consecutive_successes,
+                ))
             
             # Transition from HALF_OPEN to CLOSED
             if self.state == CircuitState.HALF_OPEN:
@@ -284,6 +319,12 @@ class CircuitBreaker:
         
         except self.expected_exception as e:
             await self.on_failure()
+            raise
+        
+        except Exception as e:
+            # Catch unexpected exceptions and still record failure
+            await self.on_failure()
+            logger.error(f"Circuit breaker '{self.name}': Unexpected exception {type(e).__name__}: {e}")
             raise
         
         finally:

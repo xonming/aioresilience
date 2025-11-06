@@ -6,13 +6,14 @@ Provides fallback mechanisms to gracefully handle failures with alternative resp
 
 import asyncio
 import functools
-import logging
 from dataclasses import dataclass
-from typing import Any, Callable, Optional, Type, Union
+from typing import Callable, TypeVar, Any, Optional, Union, Type
+from functools import wraps
 
 from .events import EventEmitter, PatternType, EventType, FallbackEvent
+from .logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @dataclass

@@ -2,14 +2,15 @@
 Bulkhead Middleware for FastAPI
 """
 
-import logging
 from typing import Callable, Optional
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.status import HTTP_503_SERVICE_UNAVAILABLE
 from starlette.responses import JSONResponse
 
-logger = logging.getLogger(__name__)
+from ...logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class BulkheadMiddleware(BaseHTTPMiddleware):
@@ -62,7 +63,7 @@ class BulkheadMiddleware(BaseHTTPMiddleware):
                 return response
         except Exception as e:
             # Bulkhead full or other error
-            logger.warning(f"Bulkhead rejected request: {request.url.path}")
+            logger.warning(f"Bulkhead rejected request: '{request.url.path}'")
             return JSONResponse(
                 status_code=HTTP_503_SERVICE_UNAVAILABLE,
                 content={

@@ -13,7 +13,6 @@ Install:
 import asyncio
 import time
 from typing import Optional
-import logging
 
 try:
     import redis.asyncio as redis
@@ -22,7 +21,9 @@ except ImportError:
     _has_redis = False
     redis = None
 
-logger = logging.getLogger(__name__)
+from ..logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class RedisRateLimiter:

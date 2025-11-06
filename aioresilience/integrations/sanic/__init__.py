@@ -36,6 +36,8 @@ from .decorators import (
     timeout_route,
     bulkhead_route,
     with_fallback_route,
+    backpressure_route,
+    adaptive_concurrency_route,
 )
 from .middleware import setup_resilience
 from .utils import get_client_ip
@@ -47,6 +49,8 @@ __all__ = [
     "timeout_route",
     "bulkhead_route",
     "with_fallback_route",
+    "backpressure_route",
+    "adaptive_concurrency_route",
     # Setup
     "setup_resilience",
     # Utilities

@@ -11,7 +11,7 @@ from aioresilience import (
     timeout,
     with_timeout,
     with_deadline,
-    TimeoutError,
+    OperationTimeoutError,
 )
 
 
@@ -36,14 +36,14 @@ class TestTimeoutManager:
     
     @pytest.mark.asyncio
     async def test_timeout_exceeded_raises(self):
-        """Test that timeout raises TimeoutError"""
+        """Test that timeout raises OperationTimeoutError"""
         manager = TimeoutManager(timeout=0.1, raise_on_timeout=True)
         
         async def slow_func():
             await asyncio.sleep(1.0)
             return "too slow"
         
-        with pytest.raises(TimeoutError, match="exceeded timeout of 0.1s"):
+        with pytest.raises(OperationTimeoutError, match="exceeded timeout of 0.1s"):
             await manager.execute(slow_func)
         
         metrics = manager.get_metrics()
@@ -74,7 +74,7 @@ class TestTimeoutManager:
             time.sleep(1.0)
             return "too slow"
         
-        with pytest.raises(TimeoutError):
+        with pytest.raises(OperationTimeoutError):
             await manager.execute(slow_sync)
     
     @pytest.mark.asyncio
@@ -146,7 +146,7 @@ class TestTimeoutDecorator:
             await asyncio.sleep(1.0)
             return "too slow"
         
-        with pytest.raises(TimeoutError):
+        with pytest.raises(OperationTimeoutError):
             await slow_func()
     
     @pytest.mark.asyncio
@@ -205,7 +205,7 @@ class TestWithTimeout:
             await asyncio.sleep(1.0)
             return "too slow"
         
-        with pytest.raises(TimeoutError):
+        with pytest.raises(OperationTimeoutError):
             await with_timeout(slow_func, 0.1)
     
     @pytest.mark.asyncio
@@ -244,7 +244,7 @@ class TestDeadlineManager:
             await asyncio.sleep(1.0)
             return "too slow"
         
-        with pytest.raises(TimeoutError, match="exceeded deadline"):
+        with pytest.raises(OperationTimeoutError, match="exceeded deadline"):
             await manager.execute(slow_func)
     
     @pytest.mark.asyncio
@@ -256,7 +256,7 @@ class TestDeadlineManager:
         async def func():
             return "ok"
         
-        with pytest.raises(TimeoutError, match="already expired"):
+        with pytest.raises(OperationTimeoutError, match="already expired"):
             await manager.execute(func)
     
     @pytest.mark.asyncio
@@ -317,7 +317,7 @@ class TestWithDeadline:
             await asyncio.sleep(1.0)
             return "too slow"
         
-        with pytest.raises(TimeoutError):
+        with pytest.raises(OperationTimeoutError):
             await with_deadline(slow_func, deadline)
     
     @pytest.mark.asyncio

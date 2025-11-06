@@ -2,14 +2,14 @@
 aiohttp middleware for aioresilience patterns
 """
 
-import logging
-from typing import Optional
+from typing import Optional, Set
 
 from aiohttp import web
 
+from ...logging import get_logger
 from .utils import get_client_ip
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def create_resilience_middleware(
@@ -18,6 +18,20 @@ def create_resilience_middleware(
     rate: Optional[str] = None,
     load_shedder=None,
     timeout: Optional[float] = None,
+    # Configurability
+    exclude_paths: Optional[Set[str]] = None,
+    circuit_error_message: str = "Service temporarily unavailable",
+    circuit_status_code: int = 503,
+    circuit_retry_after: Optional[int] = None,
+    circuit_include_info: bool = True,
+    rate_error_message: str = "Rate limit exceeded",
+    rate_status_code: int = 429,
+    rate_retry_after: int = 60,
+    load_error_message: str = "Service overloaded",
+    load_status_code: int = 503,
+    load_retry_after: int = 5,
+    priority_header: str = "X-Priority",
+    default_priority: str = "normal",
 ):
     """
     Create aiohttp middleware with resilience patterns.
@@ -47,7 +61,8 @@ def create_resilience_middleware(
     Returns:
         aiohttp middleware function
     """
-    health_paths = {"/health", "/metrics", "/ready", "/healthz"}
+    # Performance: Convert to set for O(1) lookup
+    health_paths = exclude_paths or {"/health", "/metrics", "/ready", "/healthz"}
     
     @web.middleware
     async def resilience_middleware(request, handler):
@@ -61,20 +76,20 @@ def create_resilience_middleware(
             client_ip = get_client_ip(request)
             if not await rate_limiter.check_rate_limit(client_ip, rate):
                 return web.json_response(
-                    {"error": f"Rate limit exceeded: {rate}"},
-                    status=429,
-                    headers={"Retry-After": "60"}
+                    {"error": f"{rate_error_message}: {rate}"},
+                    status=rate_status_code,
+                    headers={"Retry-After": str(rate_retry_after)}
                 )
         
         # Load shedding
         load_shed_acquired = False
         if load_shedder:
-            priority = request.headers.get("X-Priority", "normal")
+            priority = request.headers.get(priority_header, default_priority)
             if not await load_shedder.acquire(priority):
                 return web.json_response(
-                    {"error": "Service overloaded"},
-                    status=503,
-                    headers={"Retry-After": "5"}
+                    {"error": load_error_message},
+                    status=load_status_code,
+                    headers={"Retry-After": str(load_retry_after)}
                 )
             load_shed_acquired = True
         
@@ -82,14 +97,15 @@ def create_resilience_middleware(
             # Circuit breaker check
             if circuit_breaker:
                 if not await circuit_breaker.can_execute():
+                    content = {"error": circuit_error_message}
+                    if circuit_include_info:
+                        content["circuit"] = circuit_breaker.name
+                        content["state"] = str(circuit_breaker.get_state())
+                    
                     return web.json_response(
-                        {
-                            "error": "Service temporarily unavailable",
-                            "circuit": circuit_breaker.name,
-                            "state": str(circuit_breaker.get_state())
-                        },
-                        status=503,
-                        headers={"Retry-After": str(int(circuit_breaker.recovery_timeout))}
+                        content,
+                        status=circuit_status_code,
+                        headers={"Retry-After": str(circuit_retry_after if circuit_retry_after is not None else int(circuit_breaker.recovery_timeout))}
                     )
             
             # Execute handler

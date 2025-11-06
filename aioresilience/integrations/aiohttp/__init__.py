@@ -41,6 +41,8 @@ from .decorators import (
     timeout_handler,
     bulkhead_handler,
     with_fallback_handler,
+    backpressure_handler,
+    adaptive_concurrency_handler,
 )
 from .middleware import create_resilience_middleware
 from .utils import get_client_ip
@@ -52,6 +54,8 @@ __all__ = [
     "timeout_handler",
     "bulkhead_handler",
     "with_fallback_handler",
+    "backpressure_handler",
+    "adaptive_concurrency_handler",
     # Middleware
     "create_resilience_middleware",
     # Utilities

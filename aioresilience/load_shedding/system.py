@@ -15,7 +15,7 @@ import asyncio
 from typing import Optional
 from dataclasses import dataclass
 from enum import Enum
-import logging
+from functools import wraps
 
 try:
     import psutil
@@ -25,8 +25,9 @@ except ImportError:
     psutil = None
 
 from .basic import BasicLoadShedder, LoadLevel
+from ..logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @dataclass

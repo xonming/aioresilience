@@ -5,6 +5,7 @@ Event emitter for individual resilience patterns
 import asyncio
 from typing import Dict, List, Callable
 from .types import ResilienceEvent
+from ..logging import log_error
 
 
 class EventEmitter:
@@ -80,6 +81,17 @@ class EventEmitter:
         except (ValueError, KeyError):
             pass  # Handler not found, ignore
     
+    def has_listeners(self) -> bool:
+        """
+        Check if there are any event listeners registered (performance optimization)
+        
+        Returns:
+            True if any handlers are registered (local or global)
+        """
+        has_local = bool(self._handlers or self._wildcard)
+        has_global = EventEmitter._global_bus_enabled
+        return has_local or has_global
+    
     async def emit(self, event: ResilienceEvent):
         """
         Emit an event to all registered handlers (local and global)
@@ -87,35 +99,68 @@ class EventEmitter:
         Args:
             event: ResilienceEvent to emit
         """
-        # Get local handlers for this event type
-        handlers = self._handlers.get(event.event_type.value, []).copy()
+        # Fast path: check if any handlers exist at all
+        local_handlers = self._handlers.get(event.event_type.value, [])
+        has_local = bool(local_handlers or self._wildcard)
+        has_global = EventEmitter._global_bus_enabled
         
-        # Add wildcard handlers
-        handlers.extend(self._wildcard)
+        if not has_local and not has_global:
+            return  # No handlers, exit immediately
         
-        # Build task list
-        tasks = [self._safe_call(handler, event) for handler in handlers]
+        # Fast path: single local handler, no global, no wildcard
+        if not has_global and len(local_handlers) == 1 and not self._wildcard:
+            try:
+                await local_handlers[0](event)
+            except Exception as e:
+                # Log handler errors but don't propagate to prevent cascading failures
+                log_error(
+                    f'aioresilience.events.{self.pattern_name}',
+                    e,
+                    event_type=event.event_type.value,
+                    handler_count=1
+                )
+            return
         
-        # Forward to global bus if enabled
-        if EventEmitter._global_bus_enabled:
+        # Combine local and global handlers into single gather call
+        if has_global:
+            # Lazy load global bus if not already cached
             if EventEmitter._global_bus is None:
-                # Lazy load global bus
                 from .bus import global_bus
                 EventEmitter._global_bus = global_bus
-            tasks.append(EventEmitter._global_bus.emit(event))
-        
-        # Execute all tasks concurrently
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # Get global bus handlers directly (avoid double dispatch)
+            global_handlers = EventEmitter._global_bus._handlers.get(event.event_type.value, [])
+            global_wildcard = EventEmitter._global_bus._wildcard
+            
+            total_handlers = len(local_handlers) + len(self._wildcard) + len(global_handlers) + len(global_wildcard)
+            
+            if total_handlers > 0:
+                # Use generator expressions directly - avoids intermediate list allocation
+                await asyncio.gather(
+                    *(self._safe_call(h, event) for h in local_handlers),
+                    *(self._safe_call(h, event) for h in self._wildcard),
+                    *(self._safe_call(h, event) for h in global_handlers),
+                    *(self._safe_call(h, event) for h in global_wildcard)
+                )
+        else:
+            # No global bus - just local handlers
+            await asyncio.gather(
+                *(self._safe_call(h, event) for h in local_handlers),
+                *(self._safe_call(h, event) for h in self._wildcard)
+            )
     
     async def _safe_call(self, handler: Callable, event: ResilienceEvent):
         """Safely call handler with error handling"""
         try:
             await handler(event)
-        except Exception:
-            # Silently ignore handler errors to prevent cascading failures
-            # In production, you might want to log this
-            pass
+        except Exception as e:
+            # Log handler errors but don't propagate to prevent cascading failures
+            log_error(
+                f'aioresilience.events.{self.pattern_name}',
+                e,
+                handler=getattr(handler, '__name__', 'unknown'),
+                event_type=event.event_type.value
+            )
     
     def clear(self):
         """Remove all local handlers"""

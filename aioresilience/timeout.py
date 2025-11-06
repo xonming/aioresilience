@@ -6,17 +6,17 @@ Provides timeout and deadline management for async operations.
 
 import asyncio
 import functools
-import logging
 import time
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
 from .events import EventEmitter, PatternType, EventType, TimeoutEvent
+from .logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
-class TimeoutError(Exception):
+class OperationTimeoutError(Exception):
     """Raised when an operation exceeds its timeout"""
     pass
 
@@ -51,7 +51,7 @@ class TimeoutManager:
     
     Args:
         timeout: Timeout in seconds
-        raise_on_timeout: If True, raise TimeoutError; if False, return None
+        raise_on_timeout: If True, raise OperationTimeoutError; if False, return None
     """
     
     def __init__(
@@ -88,12 +88,13 @@ class TimeoutManager:
             Result of function execution or None if timed out and raise_on_timeout=False
         
         Raises:
-            TimeoutError: If operation times out and raise_on_timeout=True
+            OperationTimeoutError: If operation times out and raise_on_timeout=True
         """
-        start_time = time.time()
+        start_time = time.perf_counter()  # Faster than time.time()
+        is_coroutine = asyncio.iscoroutinefunction(func)  # Cache check
         
         try:
-            if asyncio.iscoroutinefunction(func):
+            if is_coroutine:
                 result = await asyncio.wait_for(
                     func(*args, **kwargs),
                     timeout=self.timeout
@@ -105,12 +106,13 @@ class TimeoutManager:
                     timeout=self.timeout
                 )
             
-            execution_time = time.time() - start_time
+            execution_time = time.perf_counter() - start_time
             
             async with self._lock:
                 self._metrics.total_executions += 1
                 self._metrics.successful_executions += 1
                 self._metrics.total_execution_time += execution_time
+                # Inline average calculation
                 self._metrics.average_execution_time = (
                     self._metrics.total_execution_time / self._metrics.total_executions
                 )
@@ -127,12 +129,13 @@ class TimeoutManager:
             return result
             
         except asyncio.TimeoutError:
-            execution_time = time.time() - start_time
+            execution_time = time.perf_counter() - start_time
             
             async with self._lock:
                 self._metrics.total_executions += 1
                 self._metrics.timed_out_executions += 1
                 self._metrics.total_execution_time += execution_time
+                # Inline average calculation
                 self._metrics.average_execution_time = (
                     self._metrics.total_execution_time / self._metrics.total_executions
                 )
@@ -152,7 +155,7 @@ class TimeoutManager:
             ))
             
             if self.raise_on_timeout:
-                raise TimeoutError(
+                raise OperationTimeoutError(
                     f"Operation exceeded timeout of {self.timeout}s"
                 ) from None
             else:
@@ -176,7 +179,7 @@ class DeadlineManager:
     
     Args:
         deadline: Absolute deadline as Unix timestamp
-        raise_on_deadline: If True, raise TimeoutError; if False, return None
+        raise_on_deadline: If True, raise OperationTimeoutError; if False, return None
     """
     
     def __init__(
@@ -213,12 +216,12 @@ class DeadlineManager:
             Result of function execution or None if deadline passed
         
         Raises:
-            TimeoutError: If deadline is exceeded and raise_on_deadline=True
+            OperationTimeoutError: If deadline is exceeded and raise_on_deadline=True
         """
         if self.is_expired():
             logger.warning("Deadline already expired before execution")
             if self.raise_on_deadline:
-                raise TimeoutError("Deadline already expired")
+                raise OperationTimeoutError("Deadline already expired")
             else:
                 return None
         
@@ -245,7 +248,7 @@ class DeadlineManager:
             )
             
             if self.raise_on_deadline:
-                raise TimeoutError("Operation exceeded deadline") from None
+                raise OperationTimeoutError("Operation exceeded deadline") from None
             else:
                 return None
 
