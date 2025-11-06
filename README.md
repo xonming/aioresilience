@@ -896,12 +896,10 @@ async def fetch_critical_data():
 aioresilience provides **fully configurable** middleware and decorators for FastAPI, Sanic, and aiohttp with zero hardcoded values.
 
 **Key Features:**
-- ✅ All error messages configurable
-- ✅ All HTTP status codes configurable
-- ✅ All Retry-After headers configurable
-- ✅ Custom response factories for complete control
-- ✅ Performance optimized (O(1) path exclusions)
-- ✅ 100% backward compatible
+- All error messages configurable
+- All HTTP status codes configurable
+- All Retry-After headers configurable
+- Custom response factories for complete control
 
 See [INTEGRATIONS.md](INTEGRATIONS.md) for comprehensive guides.
 
@@ -1361,11 +1359,11 @@ aioresilience/
 aioresilience is designed for minimal overhead in production environments. All patterns use efficient async primitives and lock-free algorithms where possible.
 
 **Recent Optimizations:**
-- ✅ Lazy event emission (only when listeners registered)
-- ✅ Conditional logging (format strings only when enabled)
-- ✅ O(1) path exclusions using set lookups
-- ✅ Cached listener checks (reduces per-request overhead)
-- ✅ Thread-safe state management with async locks
+- Lazy event emission (only when listeners registered)
+- Conditional logging (format strings only when enabled)
+- O(1) path exclusions using set lookups
+- Cached listener checks (reduces per-request overhead)
+- Thread-safe state management with async locks
 
 **Benchmark Your Own System:**
 
