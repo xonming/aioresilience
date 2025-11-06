@@ -352,14 +352,37 @@ The circuit breaker has three states:
 <details>
 <summary><b>Monitoring Circuit Breaker</b></summary>
 
-You can monitor circuit breaker state and metrics:
+**Recommended: Event-Driven Monitoring**
+
+For real-time monitoring and alerting, use event handlers:
 
 ```python
-# Get current state
+from aioresilience import CircuitBreaker
+
+circuit = CircuitBreaker(name="backend")
+
+# React to state changes in real-time
+@circuit.events.on("state_change")
+async def on_state_change(event):
+    print(f"Circuit {event.pattern_name}: {event.old_state} → {event.new_state}")
+    # Send alert, update dashboard, etc.
+
+@circuit.events.on("circuit_opened")
+async def on_circuit_opened(event):
+    # Alert your team when circuit opens
+    await send_alert(f"Circuit {event.pattern_name} opened!")
+```
+
+**Alternative: Polling Metrics**
+
+For periodic health checks or dashboards, you can poll metrics:
+
+```python
+# Get current state (synchronous)
 state = circuit.get_state()
 print(f"Circuit state: {state}")
 
-# Get detailed metrics
+# Get detailed metrics for dashboards
 metrics = circuit.get_metrics()
 print(f"Total requests: {metrics['total_requests']}")
 print(f"Failed requests: {metrics['failed_requests']}")
@@ -371,11 +394,15 @@ from aioresilience import get_circuit_breaker, get_all_circuit_metrics
 # Get or create a circuit breaker
 backend_circuit = get_circuit_breaker("backend", failure_threshold=3)
 
-# Get metrics for all circuit breakers
+# Get metrics for all circuit breakers (useful for health endpoints)
 all_metrics = get_all_circuit_metrics()
 for name, metrics in all_metrics.items():
     print(f"{name}: {metrics['state']}")
 ```
+
+**When to Use Each:**
+- **Events**: Real-time alerts, immediate reactions, logging
+- **Polling**: Health check endpoints, periodic dashboard updates, batch monitoring
 
 </details>
 
