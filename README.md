@@ -5,6 +5,23 @@
 [![CI/CD](https://github.com/xonming/aioresilience/actions/workflows/ci.yml/badge.svg)](https://github.com/xonming/aioresilience/actions/workflows/ci.yml)
 [![MIT License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
+## Table of Contents
+
+- [Introduction](#introduction)
+- [Features](#features)
+- [Installation](#installation)
+- [Overview](#overview)
+- [Resilience Patterns](#resilience-patterns)
+- [Logging Configuration](#logging-configuration)
+- [Usage Examples](#usage-examples)
+- [Framework Integrations](#framework-integrations)
+- [Event System](#event-system)
+- [Architecture](#architecture)
+- [Performance](#performance)
+- [Roadmap](#roadmap)
+- [Contributing](#contributing)
+- [License](#license)
+
 ## Introduction
 
 aioresilience is a comprehensive fault tolerance library for Python's asyncio ecosystem, providing 9 resilience patterns with a powerful event system for monitoring.
@@ -78,13 +95,12 @@ Complete documentation is available in this README and through Python docstrings
 
 ## Installation
 
-### Basic Installation
-
 ```bash
 pip install aioresilience
 ```
 
-### With Optional Features
+<details>
+<summary><b>📦 Optional Features (click to expand)</b></summary>
 
 ```bash
 # Redis-based distributed rate limiting
@@ -105,6 +121,8 @@ pip install aioresilience[dev]
 # Everything
 pip install aioresilience[all]
 ```
+
+</details>
 
 ## Overview
 
@@ -152,6 +170,9 @@ See [INTEGRATIONS.md](INTEGRATIONS.md) for detailed integration guides.
 *Above table is inspired by [Polly: resilience policies](https://github.com/App-vNext/Polly#resilience-policies) and [resilience4j](https://github.com/resilience4j/resilience4j).*
 
 ## Logging Configuration
+
+<details>
+<summary><b>🔧 Logging Setup (click to expand)</b></summary>
 
 aioresilience follows Python library best practices with **silent logging by default** (NullHandler). This gives you complete control over how errors and operational logs are handled.
 
@@ -260,6 +281,8 @@ else:
 | `disable_logging()` | Reset to silent state (NullHandler) |
 | `is_logging_enabled()` | Check if logging is configured |
 
+</details>
+
 ## Usage Examples
 
 ### Circuit Breaker
@@ -326,7 +349,8 @@ The circuit breaker has three states:
 * **OPEN**: Failure threshold exceeded, requests fail fast
 * **HALF_OPEN**: Testing recovery, limited requests allowed
 
-#### Monitoring Circuit Breaker
+<details>
+<summary><b>Monitoring Circuit Breaker</b></summary>
 
 You can monitor circuit breaker state and metrics:
 
@@ -352,6 +376,8 @@ all_metrics = get_all_circuit_metrics()
 for name, metrics in all_metrics.items():
     print(f"{name}: {metrics['state']}")
 ```
+
+</details>
 
 ### Rate Limiter
 
@@ -1230,6 +1256,9 @@ For detailed examples, see `examples/events_example.py`.
 
 ## Architecture
 
+<details>
+<summary><b>📁 Project Structure (click to expand)</b></summary>
+
 aioresilience follows a modular architecture with minimal required dependencies:
 
 ```
@@ -1295,6 +1324,8 @@ aioresilience/
   - `sanic>=23.0.0` (for Sanic integration)
   - `aiohttp>=3.8.0` (for aiohttp integration)
 
+</details>
+
 ### Design Philosophy
 
 1. **Async-First**: Built from the ground up for Python's asyncio
@@ -1304,7 +1335,8 @@ aioresilience/
 5. **Production-Ready**: Thread-safe with proper async locking
 6. **Observable**: Rich metrics and statistics for monitoring
 
-### Comparison with Other Libraries
+<details>
+<summary><b>📊 Comparison with Other Libraries</b></summary>
 
 | Feature | aioresilience | pybreaker | circuitbreaker |
 |---------|--------------|-----------|----------------|
@@ -1320,6 +1352,8 @@ aioresilience/
 | Backpressure | Yes | No | No |
 | Modular design | Yes | No | No |
 | Metrics & monitoring | Yes | Basic | Basic |
+
+</details>
 
 ## Performance
 
@@ -1388,7 +1422,8 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 For major changes, please open an issue first to discuss what you would like to change.
 
-### Development Setup
+<details>
+<summary><b>🛠️ Development Setup (click to expand)</b></summary>
 
 ```bash
 # Clone the repository
@@ -1436,6 +1471,8 @@ pytest -v
 # Run with coverage
 pytest --cov=aioresilience
 ```
+
+</details>
 
 ## License
 
