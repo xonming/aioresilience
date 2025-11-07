@@ -10,6 +10,11 @@ from aioresilience import (
     FallbackHandler,
     Bulkhead,
     TimeoutManager,
+    CircuitConfig,
+    RetryConfig,
+    FallbackConfig,
+    BulkheadConfig,
+    TimeoutConfig,
 )
 
 
@@ -19,8 +24,8 @@ class TestPatternStacking:
     @pytest.mark.asyncio
     async def test_circuit_breaker_with_retry(self):
         """Test circuit breaker combined with retry"""
-        circuit = CircuitBreaker(name="test", failure_threshold=3)
-        retry = RetryPolicy(max_attempts=3)
+        circuit = CircuitBreaker(name="test", config=CircuitConfig(failure_threshold=3))
+        retry = RetryPolicy(config=RetryConfig(max_attempts=3))
         
         call_count = 0
         
@@ -42,8 +47,8 @@ class TestPatternStacking:
     @pytest.mark.asyncio
     async def test_circuit_breaker_with_fallback(self):
         """Test circuit breaker with fallback"""
-        circuit = CircuitBreaker(name="test", failure_threshold=2)
-        fallback = FallbackHandler(fallback="fallback_data")
+        circuit = CircuitBreaker(name="test", config=CircuitConfig(failure_threshold=2))
+        fallback = FallbackHandler(config=FallbackConfig(fallback="fallback_data"))
         
         async def failing_function():
             raise ValueError("Service error")
@@ -65,8 +70,8 @@ class TestPatternStacking:
     @pytest.mark.asyncio
     async def test_retry_with_fallback(self):
         """Test retry with fallback when all retries fail"""
-        retry = RetryPolicy(max_attempts=3, initial_delay=0.01)
-        fallback = FallbackHandler(fallback="fallback")
+        retry = RetryPolicy(config=RetryConfig(max_attempts=3, initial_delay=0.01))
+        fallback = FallbackHandler(config=FallbackConfig(fallback="fallback"))
         
         attempt_count = 0
         
@@ -86,9 +91,9 @@ class TestPatternStacking:
     @pytest.mark.asyncio
     async def test_triple_stack_circuit_retry_fallback(self):
         """Test circuit breaker + retry + fallback stack"""
-        circuit = CircuitBreaker(name="test", failure_threshold=5)
-        retry = RetryPolicy(max_attempts=2, initial_delay=0.01)
-        fallback = FallbackHandler(fallback="fallback")
+        circuit = CircuitBreaker(name="test", config=CircuitConfig(failure_threshold=5))
+        retry = RetryPolicy(config=RetryConfig(max_attempts=2, initial_delay=0.01))
+        fallback = FallbackHandler(config=FallbackConfig(fallback="fallback"))
         
         call_count = 0
         
@@ -114,8 +119,8 @@ class TestPatternStacking:
     @pytest.mark.asyncio
     async def test_bulkhead_with_timeout(self):
         """Test bulkhead with timeout"""
-        bulkhead = Bulkhead(max_concurrent=2)
-        timeout_mgr = TimeoutManager(timeout=0.1)
+        bulkhead = Bulkhead(config=BulkheadConfig(max_concurrent=2))
+        timeout_mgr = TimeoutManager(config=TimeoutConfig(timeout=0.1))
         
         async def slow_operation():
             await asyncio.sleep(0.05)
@@ -131,8 +136,8 @@ class TestPatternStacking:
     @pytest.mark.asyncio
     async def test_bulkhead_rejects_with_circuit_breaker(self):
         """Test bulkhead rejection with circuit breaker"""
-        bulkhead = Bulkhead(max_concurrent=1, max_waiting=0)
-        circuit = CircuitBreaker(name="test", failure_threshold=3)
+        bulkhead = Bulkhead(config=BulkheadConfig(max_concurrent=1, max_waiting=0))
+        circuit = CircuitBreaker(name="test", config=CircuitConfig(failure_threshold=3))
         
         async def operation():
             await asyncio.sleep(0.1)
@@ -157,8 +162,8 @@ class TestPatternInteractions:
     @pytest.mark.asyncio
     async def test_circuit_breaker_preserves_retry_count(self):
         """Test circuit breaker doesn't interfere with retry counting"""
-        circuit = CircuitBreaker(name="test", failure_threshold=10)
-        retry = RetryPolicy(max_attempts=3)
+        circuit = CircuitBreaker(name="test", config=CircuitConfig(failure_threshold=10))
+        retry = RetryPolicy(config=RetryConfig(max_attempts=3))
         
         attempts = []
         
@@ -181,8 +186,8 @@ class TestPatternInteractions:
     @pytest.mark.asyncio
     async def test_fallback_chain_with_circuit_breakers(self):
         """Test fallback chain where each fallback has circuit breaker"""
-        primary_circuit = CircuitBreaker(name="primary", failure_threshold=2)
-        fallback_circuit = CircuitBreaker(name="fallback", failure_threshold=2)
+        primary_circuit = CircuitBreaker(name="primary", config=CircuitConfig(failure_threshold=2))
+        fallback_circuit = CircuitBreaker(name="fallback", config=CircuitConfig(failure_threshold=2))
         
         async def primary():
             raise ValueError("Primary failed")
@@ -193,7 +198,7 @@ class TestPatternInteractions:
         async def fallback_callable():
             return await fallback_circuit.call(fallback_func)
         
-        fallback = FallbackHandler(fallback=fallback_callable)
+        fallback = FallbackHandler(config=FallbackConfig(fallback=fallback_callable))
         
         async def execute_primary():
             return await primary_circuit.call(primary)
@@ -204,8 +209,8 @@ class TestPatternInteractions:
     @pytest.mark.asyncio
     async def test_concurrent_patterns_isolation(self):
         """Test patterns don't interfere when used concurrently"""
-        circuit1 = CircuitBreaker(name="service1", failure_threshold=3)
-        circuit2 = CircuitBreaker(name="service2", failure_threshold=3)
+        circuit1 = CircuitBreaker(name="service1", config=CircuitConfig(failure_threshold=3))
+        circuit2 = CircuitBreaker(name="service2", config=CircuitConfig(failure_threshold=3))
         
         async def service1():
             raise ValueError("Service 1 error")
@@ -234,10 +239,10 @@ class TestEndToEndScenarios:
     @pytest.mark.asyncio
     async def test_api_with_full_resilience(self):
         """Test API call with full resilience stack"""
-        circuit = CircuitBreaker(name="api", failure_threshold=3)
-        retry = RetryPolicy(max_attempts=3, initial_delay=0.01)
-        timeout_mgr = TimeoutManager(timeout=1.0)
-        fallback = FallbackHandler(fallback={"data": [], "status": "degraded"})
+        circuit = CircuitBreaker(name="api", config=CircuitConfig(failure_threshold=3))
+        retry = RetryPolicy(config=RetryConfig(max_attempts=3, initial_delay=0.01))
+        timeout_mgr = TimeoutManager(config=TimeoutConfig(timeout=1.0))
+        fallback = FallbackHandler(config=FallbackConfig(fallback={"data": [], "status": "degraded"}))
         
         call_count = 0
         
@@ -270,7 +275,7 @@ class TestEndToEndScenarios:
     @pytest.mark.asyncio
     async def test_gradual_degradation(self):
         """Test gradual degradation through fallback tiers"""
-        circuit = CircuitBreaker(name="primary", failure_threshold=2)
+        circuit = CircuitBreaker(name="primary", config=CircuitConfig(failure_threshold=2))
         
         async def primary_service():
             raise ValueError("Primary down")
@@ -282,7 +287,7 @@ class TestEndToEndScenarios:
             return {"data": "static", "tier": "static"}
         
         # Primary fails -> cache -> success
-        fallback1 = FallbackHandler(fallback=cache_fallback)
+        fallback1 = FallbackHandler(config=FallbackConfig(fallback=cache_fallback))
         async def execute_with_circuit():
             return await circuit.call(primary_service)
         
@@ -293,9 +298,9 @@ class TestEndToEndScenarios:
     @pytest.mark.asyncio
     async def test_high_concurrency_with_multiple_patterns(self):
         """Test multiple patterns under high concurrency"""
-        circuit = CircuitBreaker(name="test", failure_threshold=100)  # High threshold to avoid opening
-        bulkhead = Bulkhead(max_concurrent=20)  # Higher concurrency
-        retry = RetryPolicy(max_attempts=2, initial_delay=0.001)
+        circuit = CircuitBreaker(name="test", config=CircuitConfig(failure_threshold=100))  # High threshold to avoid opening
+        bulkhead = Bulkhead(config=BulkheadConfig(max_concurrent=20))  # Higher concurrency
+        retry = RetryPolicy(config=RetryConfig(max_attempts=2, initial_delay=0.001))
         
         success_count = 0
         fail_count = 0

@@ -17,6 +17,14 @@ import asyncio
 
 from ..events import EventEmitter, PatternType, EventType, RateLimitEvent
 from ..logging import get_logger
+from ..config import RateLimitConfig
+from ..exceptions import (
+    ExceptionConfig,
+    ExceptionHandler,
+    ExceptionContext,
+    RateLimitExceededError,
+    RateLimitReason,
+)
 
 logger = get_logger(__name__)
 
@@ -44,22 +52,44 @@ class LocalRateLimiter:
             raise Exception("Rate limit exceeded")
     """
     
-    def __init__(self, name: str = "default", max_limiters: int = 10000):
+    def __init__(
+        self,
+        config: Optional[RateLimitConfig] = None,
+        exceptions: Optional[ExceptionConfig] = None,
+    ):
         """
         Initialize local rate limiter.
         
         Args:
-            name: Name for this rate limiter (for logging and identification)
-            max_limiters: Maximum number of limiters to cache (LRU eviction)
+            config: Optional RateLimitConfig for configuration
+            exceptions: Optional ExceptionConfig for exception handling
         """
-        self.name = name
-        self.max_limiters = max_limiters
+        # Initialize config with defaults
+        if config is None:
+            config = RateLimitConfig()
+        
+        # Initialize exception handling
+        if exceptions is None:
+            exceptions = ExceptionConfig()
+        
+        self.name = config.name
+        self.max_limiters = config.max_limiters
         self.limiters: OrderedDict[str, AsyncLimiter] = OrderedDict()
         self.logger = logger
         self._lock = asyncio.Lock()
         
         # Event emitter for monitoring
-        self.events = EventEmitter(pattern_name=name)
+        self.events = EventEmitter(pattern_name=self.name)
+        
+        # Exception handler for when rate limit is exceeded
+        self._exception_handler = ExceptionHandler(
+            pattern_name=self.name,
+            pattern_type="rate_limiter",
+            handled_exceptions=exceptions.handled_exceptions or (Exception,),
+            exception_type=exceptions.exception_type or RateLimitExceededError,
+            exception_transformer=exceptions.exception_transformer,
+            on_exception=exceptions.on_exception,
+        )
     
     async def get_limiter(self, key: str, rate: str) -> AsyncLimiter:
         """
@@ -176,6 +206,55 @@ class LocalRateLimiter:
             self.logger.error(f"Rate limiting error for key {key}: {e}")
             # Fail open - allow the request if rate limiting fails
             return True
+    
+    async def acquire(self, key: str, rate: str) -> None:
+        """
+        Acquire rate limit or raise exception if exceeded.
+        
+        Args:
+            key: Unique identifier for the rate limit
+            rate: Rate limit string (e.g., "100/minute")
+            
+        Raises:
+            RateLimitExceededError: If rate limit is exceeded (or custom exception via ExceptionConfig)
+        """
+        limiter = await self.get_limiter(key, rate)
+        
+        # Check capacity (non-blocking)
+        if not limiter.has_capacity():
+            self.logger.warning(f"Rate limit exceeded for {key}: {rate}")
+            
+            # Emit request rejected event
+            await self.events.emit(RateLimitEvent(
+                pattern_type=PatternType.RATE_LIMITER,
+                event_type=EventType.REQUEST_REJECTED,
+                pattern_name=self.name,
+                user_id=key,
+                limit=rate,
+            ))
+            
+            # Use exception handler to raise custom exception
+            _, exc = await self._exception_handler.handle_exception(
+                reason=RateLimitReason.RATE_LIMIT_EXCEEDED,
+                original_exc=None,
+                message=f"Rate limit exceeded for key '{key}': {rate}",
+                key=key,
+                rate=rate,
+            )
+            raise exc
+        
+        # Acquire the slot
+        await limiter.acquire()
+        self.logger.debug(f"Rate limit acquired for {key}: {rate}")
+        
+        # Emit request allowed event
+        await self.events.emit(RateLimitEvent(
+            pattern_type=PatternType.RATE_LIMITER,
+            event_type=EventType.REQUEST_ALLOWED,
+            pattern_name=self.name,
+            user_id=key,
+            limit=rate,
+        ))
     
     def get_stats(self) -> dict:
         """Get rate limiter statistics"""

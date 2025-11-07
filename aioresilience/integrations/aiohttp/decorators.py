@@ -268,10 +268,12 @@ def adaptive_concurrency_handler(
     Example:
         from aiohttp import web
         from aioresilience import AdaptiveConcurrencyLimiter
+        from aioresilience.config import AdaptiveConcurrencyConfig
         from aioresilience.integrations.aiohttp import adaptive_concurrency_handler
-        
-        limiter = AdaptiveConcurrencyLimiter(initial_limit=100)
-        
+
+        config = AdaptiveConcurrencyConfig(initial_limit=100)
+        limiter = AdaptiveConcurrencyLimiter("api-limiter", config)
+
         @adaptive_concurrency_handler(limiter)
         async def get_data(request):
             return web.json_response({"data": "..."})

@@ -159,7 +159,7 @@ class TestLoggingIntegration:
         # Create emitter with failing handler
         emitter = EventEmitter("test-pattern")
         
-        @emitter.on("state_change")
+        @emitter.on(EventType.STATE_CHANGE.value)
         async def failing_handler(event):
             raise ValueError("Handler intentionally failed")
         

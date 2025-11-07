@@ -5,7 +5,10 @@ Tests for aiohttp Integration
 import pytest
 from aiohttp import web
 from aiohttp.test_utils import AioHTTPTestCase, unittest_run_loop
-from aioresilience import CircuitBreaker, RateLimiter, Bulkhead, LoadShedder
+from aioresilience import (
+    CircuitBreaker, RateLimiter, Bulkhead, LoadShedder,
+    CircuitConfig, BulkheadConfig, LoadSheddingConfig
+)
 from aioresilience.integrations.aiohttp import (
     circuit_breaker_handler,
     rate_limit_handler,
@@ -23,7 +26,7 @@ class TestAiohttpDecorators:
     @pytest.mark.asyncio
     async def test_circuit_breaker_handler_success(self):
         """Test circuit breaker decorator allows successful requests"""
-        circuit = CircuitBreaker(name="test", failure_threshold=3)
+        circuit = CircuitBreaker(name="test", config=CircuitConfig(failure_threshold=3))
         
         @circuit_breaker_handler(circuit)
         async def test_handler(request):
@@ -42,7 +45,7 @@ class TestAiohttpDecorators:
     @pytest.mark.asyncio
     async def test_bulkhead_handler_success(self):
         """Test bulkhead decorator allows requests within limit"""
-        bulkhead = Bulkhead(max_concurrent=10)
+        bulkhead = Bulkhead(config=BulkheadConfig(max_concurrent=10))
         
         @bulkhead_handler(bulkhead)
         async def test_handler(request):
@@ -136,7 +139,7 @@ class TestAiohttpMiddleware:
     @pytest.mark.asyncio
     async def test_create_resilience_middleware_basic(self):
         """Test basic resilience middleware"""
-        load_shedder = LoadShedder(max_requests=100)
+        load_shedder = LoadShedder(config=LoadSheddingConfig(max_requests=100))
         
         app = web.Application()
         app.middlewares.append(create_resilience_middleware(
@@ -156,7 +159,7 @@ class TestAiohttpMiddleware:
     @pytest.mark.asyncio
     async def test_middleware_excludes_health_endpoints(self):
         """Test that health endpoints are excluded from resilience"""
-        load_shedder = LoadShedder(max_requests=0)  # Reject all
+        load_shedder = LoadShedder(config=LoadSheddingConfig(max_requests=1))  # Very low capacity
         
         app = web.Application()
         app.middlewares.append(create_resilience_middleware(
@@ -256,8 +259,8 @@ class TestAiohttpIntegration:
     @pytest.mark.asyncio
     async def test_multiple_decorators(self):
         """Test stacking multiple decorators"""
-        circuit = CircuitBreaker(name="test")
-        bulkhead = Bulkhead(max_concurrent=10)
+        circuit = CircuitBreaker(name="test", config=CircuitConfig())
+        bulkhead = Bulkhead(config=BulkheadConfig(max_concurrent=10))
         
         @circuit_breaker_handler(circuit)
         @bulkhead_handler(bulkhead)
@@ -279,7 +282,7 @@ class TestAiohttpIntegration:
     @pytest.mark.asyncio
     async def test_decorator_with_fallback_on_error(self):
         """Test decorators with fallback when error occurs"""
-        circuit = CircuitBreaker(name="test")
+        circuit = CircuitBreaker(name="test", config=CircuitConfig())
         
         @circuit_breaker_handler(circuit)
         @with_fallback_handler({"status": "fallback"})
@@ -300,8 +303,8 @@ class TestAiohttpIntegration:
     @pytest.mark.asyncio
     async def test_middleware_and_decorators_combined(self):
         """Test middleware and decorators working together"""
-        load_shedder = LoadShedder(max_requests=100)
-        bulkhead = Bulkhead(max_concurrent=10)
+        load_shedder = LoadShedder(config=LoadSheddingConfig(max_requests=100))
+        bulkhead = Bulkhead(config=BulkheadConfig(max_concurrent=10))
         
         app = web.Application()
         app.middlewares.append(create_resilience_middleware(

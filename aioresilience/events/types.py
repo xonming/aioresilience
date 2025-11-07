@@ -2,67 +2,70 @@
 Event types and classes for resilience patterns
 """
 
-from enum import Enum
+from enum import IntEnum
 from dataclasses import dataclass, field
-from typing import Optional, Any, Dict
+from typing import Optional, Any, Dict, TYPE_CHECKING
 import time
 
-
-class PatternType(Enum):
-    """Resilience pattern types"""
-    CIRCUIT_BREAKER = "circuit_breaker"
-    RATE_LIMITER = "rate_limiter"
-    BULKHEAD = "bulkhead"
-    LOAD_SHEDDER = "load_shedder"
-    RETRY = "retry"
-    TIMEOUT = "timeout"
-    FALLBACK = "fallback"
-    BACKPRESSURE = "backpressure"
-    ADAPTIVE_CONCURRENCY = "adaptive_concurrency"
+if TYPE_CHECKING:
+    from ..circuit_breaker import CircuitState
 
 
-class EventType(Enum):
-    """Event types for resilience patterns"""
+class PatternType(IntEnum):
+    """Resilience pattern types (IntEnum for performance)"""
+    CIRCUIT_BREAKER = 0
+    BULKHEAD = 1
+    TIMEOUT = 2
+    RETRY = 3
+    RATE_LIMITER = 4
+    LOAD_SHEDDER = 5
+    BACKPRESSURE = 6
+    FALLBACK = 7
+    ADAPTIVE_CONCURRENCY = 8
+
+
+class EventType(IntEnum):
+    """Event types for resilience patterns (IntEnum for performance)"""
     # Common events
-    INITIALIZED = "initialized"
+    INITIALIZED = 0
     
-    # Circuit Breaker events
-    STATE_CHANGE = "state_change"
-    CALL_SUCCESS = "call_success"
-    CALL_FAILURE = "call_failure"
-    CIRCUIT_RESET = "circuit_reset"
-    HALF_OPEN_PROBE = "half_open_probe"
+    # Circuit Breaker events (1-10)
+    STATE_CHANGE = 1
+    CALL_SUCCESS = 2
+    CALL_FAILURE = 3
+    CIRCUIT_RESET = 4
+    HALF_OPEN_PROBE = 5
     
-    # Rate Limiter events
-    REQUEST_ALLOWED = "request_allowed"
-    REQUEST_REJECTED = "request_rejected"
-    LIMIT_UPDATED = "limit_updated"
-    WINDOW_RESET = "window_reset"
+    # Bulkhead events (11-20)
+    SLOT_ACQUIRED = 11
+    SLOT_RELEASED = 12
+    BULKHEAD_FULL = 13
+    QUEUE_FULL = 14
     
-    # Bulkhead events
-    SLOT_ACQUIRED = "slot_acquired"
-    SLOT_RELEASED = "slot_released"
-    BULKHEAD_FULL = "bulkhead_full"
-    QUEUE_FULL = "queue_full"
+    # Timeout events (21-30)
+    TIMEOUT_OCCURRED = 21
+    TIMEOUT_SUCCESS = 22
     
-    # Load Shedder events
-    REQUEST_SHED = "request_shed"
-    REQUEST_ACCEPTED = "request_accepted"
-    LOAD_LEVEL_CHANGE = "load_level_change"
-    THRESHOLD_EXCEEDED = "threshold_exceeded"
+    # Retry events (31-40)
+    RETRY_ATTEMPT = 31
+    RETRY_EXHAUSTED = 32
+    RETRY_SUCCESS = 33
     
-    # Retry events
-    RETRY_ATTEMPT = "retry_attempt"
-    RETRY_EXHAUSTED = "retry_exhausted"
-    RETRY_SUCCESS = "retry_success"
+    # Rate Limiter events (41-50)
+    REQUEST_ALLOWED = 41
+    REQUEST_REJECTED = 42
+    LIMIT_UPDATED = 43
+    WINDOW_RESET = 44
     
-    # Timeout events
-    TIMEOUT_OCCURRED = "timeout_occurred"
-    TIMEOUT_SUCCESS = "timeout_success"
+    # Load Shedder events (51-60)
+    REQUEST_SHED = 51
+    REQUEST_ACCEPTED = 52
+    LOAD_LEVEL_CHANGE = 53
+    THRESHOLD_EXCEEDED = 54
     
-    # Fallback events
-    FALLBACK_EXECUTED = "fallback_executed"
-    PRIMARY_FAILED = "primary_failed"
+    # Fallback events (61-70)
+    FALLBACK_EXECUTED = 61
+    PRIMARY_FAILED = 62
 
 
 @dataclass
@@ -77,8 +80,8 @@ class ResilienceEvent:
     def to_dict(self) -> dict:
         """Convert event to dictionary"""
         return {
-            "pattern_type": self.pattern_type.value,
-            "event_type": self.event_type.value,
+            "pattern_type": self.pattern_type.name.lower(),
+            "event_type": self.event_type.name.lower(),
             "pattern_name": self.pattern_name,
             "timestamp": self.timestamp,
             "metadata": self.metadata,
@@ -88,16 +91,16 @@ class ResilienceEvent:
 @dataclass
 class CircuitBreakerEvent(ResilienceEvent):
     """Circuit breaker specific event"""
-    old_state: Optional[str] = None
-    new_state: Optional[str] = None
+    old_state: Optional[Any] = None  # CircuitState enum
+    new_state: Optional[Any] = None  # CircuitState enum
     failure_count: int = 0
     success_count: int = 0
     
     def to_dict(self) -> dict:
         base = super().to_dict()
         base.update({
-            "old_state": self.old_state,
-            "new_state": self.new_state,
+            "old_state": self.old_state.name.lower() if hasattr(self.old_state, 'name') else self.old_state,
+            "new_state": self.new_state.name.lower() if hasattr(self.new_state, 'name') else self.new_state,
             "failure_count": self.failure_count,
             "success_count": self.success_count,
         })

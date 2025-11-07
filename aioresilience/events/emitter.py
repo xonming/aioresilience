@@ -3,7 +3,7 @@ Event emitter for individual resilience patterns
 """
 
 import asyncio
-from typing import Dict, List, Callable
+from typing import Dict, List, Callable, Union
 from .types import ResilienceEvent
 from ..logging import log_error
 
@@ -27,21 +27,21 @@ class EventEmitter:
         """
         self.pattern_name = pattern_name
         
-        # event_type -> List[handler]
-        self._handlers: Dict[str, List[Callable]] = {}
+        # event_type (str or int) -> List[handler]
+        self._handlers: Dict[Union[str, int], List[Callable]] = {}
         
         # Wildcard handlers (listen to all events from this pattern)
         self._wildcard: List[Callable] = []
     
-    def on(self, event_type: str):
+    def on(self, event_type: Union[str, int]):
         """
         Register an event handler (decorator style)
         
         Args:
-            event_type: Event type to listen for, or "*" for all events from this pattern
+            event_type: Event type to listen for (string name, int value, or "*" for all events)
         
         Usage:
-            @circuit.events.on("state_change")
+            @circuit.events.on(EventType.RETRY_EXHAUSTED.value)  # Efficient
             async def handler(event):
                 ...
         """
@@ -50,12 +50,12 @@ class EventEmitter:
             return handler
         return decorator
     
-    def add_handler(self, event_type: str, handler: Callable):
+    def add_handler(self, event_type: Union[str, int], handler: Callable):
         """
         Add handler programmatically (non-decorator style)
         
         Args:
-            event_type: Event type to listen for, or "*" for all events
+            event_type: Event type to listen for (string name, int value, or "*" for all events)
             handler: Async callable that receives ResilienceEvent
         """
         if event_type == "*":
@@ -65,12 +65,12 @@ class EventEmitter:
                 self._handlers[event_type] = []
             self._handlers[event_type].append(handler)
     
-    def remove_handler(self, event_type: str, handler: Callable):
+    def remove_handler(self, event_type: Union[str, int], handler: Callable):
         """
         Remove a handler
         
         Args:
-            event_type: Event type the handler is registered for
+            event_type: Event type the handler is registered for (string or int)
             handler: Handler to remove
         """
         try:
@@ -100,7 +100,10 @@ class EventEmitter:
             event: ResilienceEvent to emit
         """
         # Fast path: check if any handlers exist at all
-        local_handlers = self._handlers.get(event.event_type.value, [])
+        # Support both enum value (int) and enum name (string) lookups
+        handlers_by_value = self._handlers.get(event.event_type.value, [])
+        handlers_by_name = self._handlers.get(event.event_type.name.lower(), [])
+        local_handlers = handlers_by_value + handlers_by_name
         has_local = bool(local_handlers or self._wildcard)
         has_global = EventEmitter._global_bus_enabled
         
@@ -129,7 +132,10 @@ class EventEmitter:
                 EventEmitter._global_bus = global_bus
             
             # Get global bus handlers directly (avoid double dispatch)
-            global_handlers = EventEmitter._global_bus._handlers.get(event.event_type.value, [])
+            # Support both enum value and enum name lookups
+            global_handlers_by_value = EventEmitter._global_bus._handlers.get(event.event_type.value, [])
+            global_handlers_by_name = EventEmitter._global_bus._handlers.get(event.event_type.name.lower(), [])
+            global_handlers = global_handlers_by_value + global_handlers_by_name
             global_wildcard = EventEmitter._global_bus._wildcard
             
             total_handlers = len(local_handlers) + len(self._wildcard) + len(global_handlers) + len(global_wildcard)

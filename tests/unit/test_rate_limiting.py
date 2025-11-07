@@ -4,6 +4,7 @@ Tests for Rate Limiting implementation
 import pytest
 import asyncio
 from aioresilience.rate_limiting import LocalRateLimiter
+from aioresilience import RateLimitConfig
 
 
 class TestLocalRateLimiter:
@@ -12,7 +13,7 @@ class TestLocalRateLimiter:
     @pytest.mark.asyncio
     async def test_rate_limiter_initialization(self):
         """Test basic rate limiter initialization"""
-        rl = LocalRateLimiter(name="test")
+        rl = LocalRateLimiter(config=RateLimitConfig(name="test"))
         
         assert rl.name == "test"
         assert rl.max_limiters == 10000
@@ -21,7 +22,7 @@ class TestLocalRateLimiter:
     @pytest.mark.asyncio
     async def test_rate_limiter_custom_max(self):
         """Test rate limiter with custom max_limiters"""
-        rl = LocalRateLimiter(name="test", max_limiters=100)
+        rl = LocalRateLimiter(config=RateLimitConfig(name="test", max_limiters=100))
         
         assert rl.max_limiters == 100
 
@@ -129,8 +130,8 @@ class TestLocalRateLimiter:
 
     @pytest.mark.asyncio
     async def test_lru_eviction(self):
-        """Test LRU eviction when max_limiters exceeded"""
-        rl = LocalRateLimiter(max_limiters=3)
+        """Test LRU eviction of old limiters"""
+        rl = LocalRateLimiter(config=RateLimitConfig(max_limiters=3))
         
         # Create 4 limiters (should evict oldest)
         await rl.get_limiter("user_1", "10/second")
@@ -147,7 +148,7 @@ class TestLocalRateLimiter:
     @pytest.mark.asyncio
     async def test_lru_moves_to_end(self):
         """Test that accessing a limiter moves it to end (most recent)"""
-        rl = LocalRateLimiter(max_limiters=3)
+        rl = LocalRateLimiter(config=RateLimitConfig(max_limiters=3))
         
         await rl.get_limiter("user_1", "10/second")
         await rl.get_limiter("user_2", "10/second")
@@ -185,7 +186,7 @@ class TestLocalRateLimiter:
     @pytest.mark.asyncio
     async def test_get_stats(self):
         """Test get_stats returns correct information"""
-        rl = LocalRateLimiter(name="test_service", max_limiters=5000)
+        rl = LocalRateLimiter(config=RateLimitConfig(name="test_service", max_limiters=5000))
         
         # Create some limiters
         await rl.get_limiter("user_1", "10/second")
@@ -249,7 +250,7 @@ class TestRateLimiterThreadSafety:
     @pytest.mark.asyncio
     async def test_concurrent_lru_eviction(self):
         """Test LRU eviction is thread-safe under concurrent access"""
-        rl = LocalRateLimiter(max_limiters=10)
+        rl = LocalRateLimiter(config=RateLimitConfig(max_limiters=10))
         
         # Create many limiters concurrently
         await asyncio.gather(*[
@@ -289,7 +290,7 @@ class TestRateLimitingIntegration:
     @pytest.mark.asyncio
     async def test_realistic_api_scenario(self):
         """Test realistic API rate limiting scenario"""
-        rl = LocalRateLimiter(name="api")
+        rl = LocalRateLimiter(config=RateLimitConfig(name="api"))
         
         async def api_call(user_id: str):
             if await rl.check_rate_limit(user_id, "100/minute"):

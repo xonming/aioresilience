@@ -8,11 +8,17 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from aioresilience import (
     CircuitBreaker,
-    RetryPolicy,
+    RateLimiter,
     Bulkhead,
     BackpressureManager,
     AdaptiveConcurrencyLimiter,
+    RetryPolicy,
+    CircuitConfig,
+    BulkheadConfig,
+    BackpressureConfig,
+    RetryConfig,
 )
+from aioresilience.config import AdaptiveConcurrencyConfig
 from aioresilience.integrations.fastapi import (
     CircuitBreakerMiddleware,
     FallbackMiddleware,
@@ -30,7 +36,7 @@ class TestCircuitBreakerMiddleware:
     def test_circuit_open_returns_error(self):
         """Test circuit breaker returns error when open"""
         app = FastAPI()
-        circuit = CircuitBreaker("test", failure_threshold=1)
+        circuit = CircuitBreaker("test", config=CircuitConfig(failure_threshold=1))
         
         app.add_middleware(CircuitBreakerMiddleware, circuit_breaker=circuit)
         
@@ -53,7 +59,7 @@ class TestCircuitBreakerMiddleware:
     def test_custom_error_message(self):
         """Test custom error message configuration"""
         app = FastAPI()
-        circuit = CircuitBreaker("test", failure_threshold=1)
+        circuit = CircuitBreaker("test", config=CircuitConfig(failure_threshold=1))
         
         app.add_middleware(
             CircuitBreakerMiddleware,
@@ -76,7 +82,7 @@ class TestCircuitBreakerMiddleware:
     def test_exclude_paths(self):
         """Test path exclusion"""
         app = FastAPI()
-        circuit = CircuitBreaker("test", failure_threshold=1)
+        circuit = CircuitBreaker("test", config=CircuitConfig(failure_threshold=1))
         
         app.add_middleware(
             CircuitBreakerMiddleware,
@@ -106,7 +112,7 @@ class TestCircuitBreakerMiddleware:
     def test_retry_after_header(self):
         """Test Retry-After header in response"""
         app = FastAPI()
-        circuit = CircuitBreaker("test", failure_threshold=1, recovery_timeout=30)
+        circuit = CircuitBreaker("test", config=CircuitConfig(failure_threshold=1, recovery_timeout=30))
         
         app.add_middleware(
             CircuitBreakerMiddleware,
@@ -183,7 +189,7 @@ class TestRetryRouteDecorator:
     def test_with_custom_policy(self):
         """Test with custom retry policy"""
         app = FastAPI()
-        policy = RetryPolicy(max_attempts=2, initial_delay=0.001)
+        policy = RetryPolicy(config=RetryConfig(max_attempts=2, initial_delay=0.001))
         call_count = {"count": 0}
         
         @app.get("/")
@@ -288,7 +294,7 @@ class TestBackpressureMiddleware:
     def test_allows_requests_under_limit(self):
         """Test requests allowed under limit"""
         app = FastAPI()
-        backpressure = BackpressureManager(max_pending=10)
+        backpressure = BackpressureManager(config=BackpressureConfig(max_pending=10, high_water_mark=8, low_water_mark=3))
         
         app.add_middleware(BackpressureMiddleware, backpressure=backpressure)
         
@@ -305,9 +311,11 @@ class TestBackpressureMiddleware:
         """Test rejects when system overloaded"""
         app = FastAPI()
         backpressure = BackpressureManager(
-            max_pending=1,
-            high_water_mark=1,
-            low_water_mark=0,
+            config=BackpressureConfig(
+                max_pending=1,
+                high_water_mark=1,
+                low_water_mark=0,
+            )
         )
         
         # Fill the backpressure
@@ -337,7 +345,8 @@ class TestAdaptiveConcurrencyMiddleware:
     def test_allows_within_limit(self):
         """Test allows requests within concurrency limit"""
         app = FastAPI()
-        limiter = AdaptiveConcurrencyLimiter(initial_limit=10)
+        config = AdaptiveConcurrencyConfig(initial_limit=10)
+        limiter = AdaptiveConcurrencyLimiter("test", config)
         
         app.add_middleware(AdaptiveConcurrencyMiddleware, limiter=limiter)
         
@@ -353,7 +362,8 @@ class TestAdaptiveConcurrencyMiddleware:
     def test_rejects_over_limit(self):
         """Test rejects when over concurrency limit"""
         app = FastAPI()
-        limiter = AdaptiveConcurrencyLimiter(initial_limit=1, min_limit=1)
+        config = AdaptiveConcurrencyConfig(initial_limit=1, min_limit=1, max_limit=10)
+        limiter = AdaptiveConcurrencyLimiter("test", config)
         
         # Acquire the single slot
         import asyncio
@@ -374,7 +384,8 @@ class TestAdaptiveConcurrencyMiddleware:
     def test_exclude_paths(self):
         """Test path exclusion"""
         app = FastAPI()
-        limiter = AdaptiveConcurrencyLimiter(initial_limit=1)
+        config = AdaptiveConcurrencyConfig(initial_limit=1, min_limit=1, max_limit=10)
+        limiter = AdaptiveConcurrencyLimiter("test", config)
         asyncio.run(limiter.acquire())  # Fill limit
         
         app.add_middleware(
@@ -408,7 +419,7 @@ class TestBulkheadMiddleware:
     def test_allows_within_limit(self):
         """Test allows requests within bulkhead limit"""
         app = FastAPI()
-        bulkhead = Bulkhead(max_concurrent=5)
+        bulkhead = Bulkhead(config=BulkheadConfig(max_concurrent=5))
         
         app.add_middleware(BulkheadMiddleware, bulkhead=bulkhead)
         
@@ -424,7 +435,7 @@ class TestBulkheadMiddleware:
     def test_rejects_over_limit(self):
         """Test bulkhead timeout when waiting too long"""
         app = FastAPI()
-        bulkhead = Bulkhead(max_concurrent=1, max_waiting=0)
+        bulkhead = Bulkhead(config=BulkheadConfig(max_concurrent=1, max_waiting=0))
         
         app.add_middleware(BulkheadMiddleware, bulkhead=bulkhead)
         

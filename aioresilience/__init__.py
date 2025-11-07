@@ -43,10 +43,53 @@ Usage:
 """
 
 # Core modules (no optional dependencies)
+
+# Configuration classes
+from .config import (
+    CircuitConfig,
+    BulkheadConfig,
+    TimeoutConfig,
+    BackpressureConfig,
+    LoadSheddingConfig,
+    RetryConfig,
+    RateLimitConfig,
+    FallbackConfig,
+    AdaptiveConcurrencyConfig,
+)
+
+# Exception System
+from .exceptions import (
+    # Base classes
+    ResilienceError,
+    ExceptionContext,
+    ExceptionAction,
+    # Configuration
+    ExceptionConfig,
+    create_exception_config,
+    # Reason enums
+    CircuitBreakerReason,
+    BulkheadReason,
+    TimeoutReason,
+    RetryReason,
+    BackpressureReason,
+    LoadSheddingReason,
+    RateLimitReason,
+    FallbackReason,
+    # Exception types
+    CircuitBreakerOpenError,
+    BulkheadFullError,
+    OperationTimeoutError,
+    BackpressureError,
+    LoadSheddingError,
+    RateLimitExceededError,
+    FallbackFailedError,
+    # Handler
+    ExceptionHandler,
+)
+
 from .circuit_breaker import (
     CircuitBreaker,
     CircuitState,
-    CircuitBreakerOpenError,
     circuit_breaker,
     CircuitBreakerManager,
     get_circuit_breaker,
@@ -75,12 +118,10 @@ from .timeout import (
     timeout,
     with_timeout,
     with_deadline,
-    OperationTimeoutError,
 )
 
 from .bulkhead import (
     Bulkhead,
-    BulkheadFullError,
     bulkhead,
     get_bulkhead,
     get_all_bulkhead_metrics,
@@ -133,10 +174,43 @@ from .logging import (
 )
 
 __all__ = [
+    # Configuration Classes
+    "CircuitConfig",
+    "BulkheadConfig",
+    "TimeoutConfig",
+    "BackpressureConfig",
+    "LoadSheddingConfig",
+    "RetryConfig",
+    "RateLimitConfig",
+    "FallbackConfig",
+    "AdaptiveConcurrencyConfig",
+    
+    # Exception System
+    "ResilienceError",
+    "ExceptionContext",
+    "ExceptionAction",
+    "ExceptionConfig",
+    "create_exception_config",
+    "CircuitBreakerReason",
+    "BulkheadReason",
+    "TimeoutReason",
+    "RetryReason",
+    "BackpressureReason",
+    "LoadSheddingReason",
+    "RateLimitReason",
+    "FallbackReason",
+    "CircuitBreakerOpenError",
+    "BulkheadFullError",
+    "OperationTimeoutError",
+    "BackpressureError",
+    "LoadSheddingError",
+    "RateLimitExceededError",
+    "FallbackFailedError",
+    "ExceptionHandler",
+    
     # Circuit Breaker
     "CircuitBreaker",
     "CircuitState",
-    "CircuitBreakerOpenError",
     "circuit_breaker",
     "CircuitBreakerManager",
     "get_circuit_breaker",
@@ -154,11 +228,9 @@ __all__ = [
     "timeout",
     "with_timeout",
     "with_deadline",
-    "OperationTimeoutError",
     
     # Bulkhead
     "Bulkhead",
-    "BulkheadFullError",
     "bulkhead",
     "get_bulkhead",
     "get_all_bulkhead_metrics",
@@ -209,6 +281,6 @@ __all__ = [
     "is_logging_enabled",
 ]
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 __author__ = "xonming"
 __license__ = "MIT"

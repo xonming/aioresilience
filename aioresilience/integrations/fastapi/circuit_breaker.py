@@ -9,6 +9,8 @@ from starlette.status import HTTP_503_SERVICE_UNAVAILABLE
 from starlette.responses import JSONResponse
 
 from ...logging import get_logger
+from ...exceptions import CircuitBreakerOpenError, CircuitBreakerReason
+from ...circuit_breaker import CircuitState
 
 logger = get_logger(__name__)
 
@@ -93,7 +95,10 @@ class CircuitBreakerMiddleware(BaseHTTPMiddleware):
             if self.error_detail_factory:
                 content = self.error_detail_factory(self.circuit_breaker)
             else:
-                content = {"detail": self.error_message}
+                content = {
+                    "detail": self.error_message,
+                    "reason": CircuitBreakerReason.CIRCUIT_OPEN.name,
+                }
                 if self.include_circuit_info:
                     content["circuit"] = self.circuit_breaker.name
                     content["state"] = str(self.circuit_breaker.get_state())
@@ -113,13 +118,69 @@ class CircuitBreakerMiddleware(BaseHTTPMiddleware):
         try:
             # Execute request through circuit breaker
             async def execute_request():
-                return await call_next(request)
+                response = await call_next(request)
+                
+                # Convert 5xx responses to exceptions so circuit breaker can track failures
+                # This allows the circuit breaker to record failures and invoke callbacks
+                if hasattr(response, 'status_code') and response.status_code >= 500:
+                    raise Exception(f"Downstream service returned {response.status_code}")
+                
+                return response
             
-            return await self.circuit_breaker.call(execute_request)
-        except Exception as e:
-            # Circuit breaker already recorded the failure
-            logger.error(f"Request failed through circuit breaker: {e}")
+            response = await self.circuit_breaker.call(execute_request)
+            return response
+        
+        except CircuitBreakerOpenError as e:
+            # Circuit breaker is open - provide rich context
+            logger.warning(f"Circuit breaker rejected request: {e.reason.name}")
+            
+            if self.response_factory:
+                return self.response_factory(self.circuit_breaker, request)
+            
+            # Build detailed error response with context
+            content = {
+                "detail": str(e) if str(e) else "Circuit breaker is open",
+                "circuit": e.pattern_name,
+                "reason": e.reason.name,
+            }
+            
+            # Add metadata if available
+            if e.metadata:
+                content["metadata"] = {
+                    "state": e.metadata.get("state"),
+                    "failure_count": e.metadata.get("failure_count"),
+                }
+            
+            if self.include_circuit_info:
+                content["state"] = str(self.circuit_breaker.get_state())
+            
             return JSONResponse(
                 status_code=self.status_code,
-                content={"detail": "Service error", "error": str(e)}
+                content=content,
+                headers={"Retry-After": str(int(self.circuit_breaker.recovery_timeout))}
+            )
+        
+        except Exception as e:
+            # Application exception occurred
+            # Circuit breaker already recorded the failure and updated state
+            # Now we need to return an appropriate HTTP response
+            logger.error(f"Request failed: {type(e).__name__}: {e}")
+            
+            # If circuit just opened due to this failure, return circuit breaker response
+            if self.circuit_breaker.state == CircuitState.OPEN:
+                return JSONResponse(
+                    status_code=self.status_code,
+                    content={
+                        "detail": self.error_message,
+                        "circuit": self.circuit_breaker.name,
+                        "reason": CircuitBreakerReason.CIRCUIT_OPEN.name,
+                        "state": str(self.circuit_breaker.get_state())
+                    },
+                    headers={"Retry-After": str(int(self.circuit_breaker.recovery_timeout))}
+                )
+            
+            # Otherwise return generic error (let FastAPI's exception handlers deal with it if needed)
+            return JSONResponse(
+                status_code=500,
+                content={"detail": "Internal server error", "error": str(e)}
             )

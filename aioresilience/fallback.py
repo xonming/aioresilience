@@ -12,6 +12,14 @@ from functools import wraps
 
 from .events import EventEmitter, PatternType, EventType, FallbackEvent
 from .logging import get_logger
+from .config import FallbackConfig
+from .exceptions import (
+    ExceptionConfig,
+    ExceptionHandler,
+    ExceptionContext,
+    FallbackFailedError,
+    FallbackReason,
+)
 
 logger = get_logger(__name__)
 
@@ -54,18 +62,35 @@ class FallbackHandler:
     
     def __init__(
         self,
-        fallback: Union[Any, Callable],
-        fallback_on_exceptions: tuple[Type[Exception], ...] = (Exception,),
-        reraise_on_fallback_failure: bool = True,
+        config: Optional[FallbackConfig] = None,
+        exceptions: Optional[ExceptionConfig] = None,
     ):
-        self.fallback = fallback
-        self.fallback_on_exceptions = fallback_on_exceptions
-        self.reraise_on_fallback_failure = reraise_on_fallback_failure
+        # Initialize config with defaults
+        if config is None:
+            config = FallbackConfig()
+        
+        # Initialize exception handling
+        if exceptions is None:
+            exceptions = ExceptionConfig()
+        
+        self.fallback = config.fallback
+        self.fallback_on_exceptions = config.fallback_on_exceptions or (Exception,)
+        self.reraise_on_fallback_failure = config.reraise_on_fallback_failure
         self._metrics = FallbackMetrics()
         self._lock = asyncio.Lock()
         
         # Event emitter for monitoring
         self.events = EventEmitter(pattern_name=f"fallback-{id(self)}")
+        
+        # Exception handler for when all fallbacks fail
+        self._exception_handler = ExceptionHandler(
+            pattern_name=f"fallback-{id(self)}",
+            pattern_type="fallback",
+            handled_exceptions=exceptions.handled_exceptions or (Exception,),
+            exception_type=exceptions.exception_type or FallbackFailedError,
+            exception_transformer=exceptions.exception_transformer,
+            on_exception=exceptions.on_exception,
+        )
     
     async def _execute_fallback(self, *args, **kwargs) -> Any:
         """Execute the fallback logic"""
@@ -156,7 +181,15 @@ class FallbackHandler:
                 )
                 
                 if self.reraise_on_fallback_failure:
-                    raise
+                    # Use exception handler to raise custom exception
+                    _, exc = await self._exception_handler.handle_exception(
+                        reason=FallbackReason.ALL_FALLBACKS_FAILED,
+                        original_exc=fallback_error,
+                        message=f"All fallback attempts failed. Original error: {e}, Fallback error: {fallback_error}",
+                        original_error=str(e),
+                        fallback_error=str(fallback_error),
+                    )
+                    raise exc
                 else:
                     logger.warning("Suppressing fallback failure, returning None")
                     return None
@@ -307,9 +340,11 @@ def fallback(
     """
     def decorator(func: Callable) -> Callable:
         handler = FallbackHandler(
-            fallback=fallback_value,
-            fallback_on_exceptions=fallback_on_exceptions,
-            reraise_on_fallback_failure=reraise_on_fallback_failure,
+            config=FallbackConfig(
+                fallback=fallback_value,
+                fallback_on_exceptions=fallback_on_exceptions,
+                reraise_on_fallback_failure=reraise_on_fallback_failure,
+            )
         )
         
         @functools.wraps(func)
@@ -376,5 +411,5 @@ async def with_fallback(
             user_id=123
         )
     """
-    handler = FallbackHandler(fallback=fallback_value)
+    handler = FallbackHandler(config=FallbackConfig(fallback=fallback_value))
     return await handler.execute(func, *args, **kwargs)

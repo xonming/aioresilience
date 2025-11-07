@@ -13,7 +13,11 @@ from aioresilience import (
     Bulkhead,
     BackpressureManager,
     AdaptiveConcurrencyLimiter,
+    CircuitConfig,
+    BulkheadConfig,
+    BackpressureConfig,
 )
+from aioresilience.config import AdaptiveConcurrencyConfig
 from aioresilience.integrations.sanic import (
     circuit_breaker_route,
     rate_limit_route,
@@ -32,7 +36,7 @@ class TestSanicCircuitBreakerComprehensive:
     async def test_circuit_breaker_opens_on_failure(self):
         """Test circuit opens after failure threshold"""
         app = Sanic(f"test_app_{uuid.uuid4().hex[:8]}")
-        circuit = CircuitBreaker("test", failure_threshold=1)
+        circuit = CircuitBreaker("test", config=CircuitConfig(failure_threshold=1))
         
         @app.get("/test")
         @circuit_breaker_route(circuit)
@@ -51,7 +55,7 @@ class TestSanicCircuitBreakerComprehensive:
     async def test_circuit_breaker_custom_params(self):
         """Test circuit breaker with all custom parameters"""
         app = Sanic(f"test_app_{uuid.uuid4().hex[:8]}")
-        circuit = CircuitBreaker("test", failure_threshold=1)
+        circuit = CircuitBreaker("test", config=CircuitConfig(failure_threshold=1))
         
         @app.get("/test")
         @circuit_breaker_route(
@@ -77,7 +81,7 @@ class TestSanicRateLimitComprehensive:
     async def test_rate_limit_with_custom_key_function(self):
         """Test rate limiting with custom key extractor"""
         app = Sanic(f"test_app_{uuid.uuid4().hex[:8]}")
-        limiter = RateLimiter(name="test")
+        limiter = RateLimiter()
         
         def custom_key(request):
             return request.headers.get("X-User-ID", "anonymous")
@@ -94,7 +98,7 @@ class TestSanicRateLimitComprehensive:
     async def test_rate_limit_with_all_custom_params(self):
         """Test rate limiting with all parameters"""
         app = Sanic(f"test_app_{uuid.uuid4().hex[:8]}")
-        limiter = RateLimiter(name="test")
+        limiter = RateLimiter()
         
         @app.get("/test")
         @rate_limit_route(
@@ -155,7 +159,7 @@ class TestSanicBulkheadComprehensive:
     async def test_bulkhead_executes_successfully(self):
         """Test bulkhead allows execution"""
         app = Sanic(f"test_app_{uuid.uuid4().hex[:8]}")
-        bulkhead = Bulkhead(max_concurrent=10)
+        bulkhead = Bulkhead(config=BulkheadConfig(max_concurrent=10))
         
         @app.get("/test")
         @bulkhead_route(bulkhead)
@@ -169,7 +173,7 @@ class TestSanicBulkheadComprehensive:
     async def test_bulkhead_with_custom_params(self):
         """Test bulkhead with custom error parameters"""
         app = Sanic(f"test_app_{uuid.uuid4().hex[:8]}")
-        bulkhead = Bulkhead(max_concurrent=10)
+        bulkhead = Bulkhead(config=BulkheadConfig(max_concurrent=10))
         
         @app.get("/test")
         @bulkhead_route(
@@ -237,7 +241,7 @@ class TestSanicBackpressureComprehensive:
     async def test_backpressure_allows_within_capacity(self):
         """Test backpressure allows requests within capacity"""
         app = Sanic(f"test_app_{uuid.uuid4().hex[:8]}")
-        bp = BackpressureManager(max_pending=10)
+        bp = BackpressureManager(config=BackpressureConfig(max_pending=10, high_water_mark=8, low_water_mark=3))
         
         @app.get("/test")
         @backpressure_route(bp)
@@ -251,7 +255,7 @@ class TestSanicBackpressureComprehensive:
     async def test_backpressure_with_custom_timeout(self):
         """Test backpressure with custom timeout"""
         app = Sanic(f"test_app_{uuid.uuid4().hex[:8]}")
-        bp = BackpressureManager(max_pending=10)
+        bp = BackpressureManager(config=BackpressureConfig(max_pending=10, high_water_mark=8, low_water_mark=3))
         
         @app.get("/test")
         @backpressure_route(bp, timeout=2.0)
@@ -265,7 +269,7 @@ class TestSanicBackpressureComprehensive:
     async def test_backpressure_with_custom_error(self):
         """Test backpressure with custom error params"""
         app = Sanic(f"test_app_{uuid.uuid4().hex[:8]}")
-        bp = BackpressureManager(max_pending=10)
+        bp = BackpressureManager(config=BackpressureConfig(max_pending=10, high_water_mark=8, low_water_mark=3))
         
         @app.get("/test")
         @backpressure_route(
@@ -288,7 +292,8 @@ class TestSanicAdaptiveConcurrencyComprehensive:
     async def test_adaptive_concurrency_allows_requests(self):
         """Test adaptive concurrency allows requests"""
         app = Sanic(f"test_app_{uuid.uuid4().hex[:8]}")
-        limiter = AdaptiveConcurrencyLimiter(initial_limit=10)
+        config = AdaptiveConcurrencyConfig(initial_limit=10)
+        limiter = AdaptiveConcurrencyLimiter("test", config)
         
         @app.get("/test")
         @adaptive_concurrency_route(limiter)
@@ -302,7 +307,8 @@ class TestSanicAdaptiveConcurrencyComprehensive:
     async def test_adaptive_concurrency_with_custom_error(self):
         """Test adaptive concurrency with custom error params"""
         app = Sanic(f"test_app_{uuid.uuid4().hex[:8]}")
-        limiter = AdaptiveConcurrencyLimiter(initial_limit=10)
+        config = AdaptiveConcurrencyConfig(initial_limit=10)
+        limiter = AdaptiveConcurrencyLimiter("test", config)
         
         @app.get("/test")
         @adaptive_concurrency_route(
@@ -324,11 +330,12 @@ class TestSanicDecoratorCombinations:
     async def test_stacking_all_decorators(self):
         """Test all decorators work when stacked"""
         app = Sanic(f"test_app_{uuid.uuid4().hex[:8]}")
-        circuit = CircuitBreaker("test", failure_threshold=5)
-        bulkhead = Bulkhead(max_concurrent=10)
-        limiter = RateLimiter(name="test")
-        bp = BackpressureManager(max_pending=10)
-        ac = AdaptiveConcurrencyLimiter(initial_limit=10)
+        circuit = CircuitBreaker("test", config=CircuitConfig(failure_threshold=5))
+        bulkhead = Bulkhead(config=BulkheadConfig(max_concurrent=10))
+        limiter = RateLimiter()
+        bp = BackpressureManager(config=BackpressureConfig(max_pending=10, high_water_mark=8, low_water_mark=3))
+        ac_config = AdaptiveConcurrencyConfig(initial_limit=10)
+        ac = AdaptiveConcurrencyLimiter("test", ac_config)
         
         @app.get("/test")
         @circuit_breaker_route(circuit)
@@ -349,7 +356,7 @@ class TestSanicDecoratorCombinations:
     async def test_error_handling_through_decorator_chain(self):
         """Test error propagates correctly through decorators"""
         app = Sanic(f"test_app_{uuid.uuid4().hex[:8]}")
-        circuit = CircuitBreaker("test", failure_threshold=10)
+        circuit = CircuitBreaker("test", config=CircuitConfig(failure_threshold=10))
         
         @app.get("/test")
         @circuit_breaker_route(circuit)

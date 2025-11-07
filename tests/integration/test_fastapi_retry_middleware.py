@@ -7,7 +7,7 @@ The retry_route decorator is recommended for production use.
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from aioresilience import RetryPolicy
+from aioresilience import RetryPolicy, RetryConfig
 from aioresilience.integrations.fastapi import RetryMiddleware
 
 
@@ -21,7 +21,7 @@ class TestRetryMiddleware:
         
         app.add_middleware(
             RetryMiddleware,
-            retry_policy=RetryPolicy(max_attempts=3, initial_delay=0.001),
+            retry_policy=RetryPolicy(config=RetryConfig(max_attempts=3, initial_delay=0.001)),
         )
         
         @app.get("/")
@@ -40,9 +40,11 @@ class TestRetryMiddleware:
         """Test with custom retry policy"""
         app = FastAPI()
         policy = RetryPolicy(
-            max_attempts=2,
-            initial_delay=0.001,
-            max_delay=0.01,
+            config=RetryConfig(
+                max_attempts=2,
+                initial_delay=0.001,
+                max_delay=0.01,
+            )
         )
         
         app.add_middleware(
@@ -65,7 +67,7 @@ class TestRetryMiddleware:
         
         app.add_middleware(
             RetryMiddleware,
-            retry_policy=RetryPolicy(max_attempts=3, initial_delay=0.001),
+            retry_policy=RetryPolicy(config=RetryConfig(max_attempts=3, initial_delay=0.001)),
             retry_on_status_codes=[500, 502, 503],
         )
         
@@ -84,7 +86,7 @@ class TestRetryMiddleware:
         
         app.add_middleware(
             RetryMiddleware,
-            retry_policy=RetryPolicy(max_attempts=3, initial_delay=0.001),
+            retry_policy=RetryPolicy(config=RetryConfig(max_attempts=3, initial_delay=0.001)),
             exclude_paths=["/health"],
         )
         
@@ -123,7 +125,7 @@ class TestRetryMiddleware:
         
         app.add_middleware(
             RetryMiddleware,
-            retry_policy=RetryPolicy(max_attempts=2, initial_delay=0.001),
+            retry_policy=RetryPolicy(config=RetryConfig(max_attempts=2, initial_delay=0.001)),
         )
         
         @app.get("/api/users")
@@ -150,7 +152,7 @@ class TestRetryMiddleware:
         
         app.add_middleware(
             RetryMiddleware,
-            retry_policy=RetryPolicy(max_attempts=2, initial_delay=0.001),
+            retry_policy=RetryPolicy(config=RetryConfig(max_attempts=2, initial_delay=0.001)),
         )
         
         @app.get("/search")
@@ -169,7 +171,7 @@ class TestRetryMiddleware:
         
         app.add_middleware(
             RetryMiddleware,
-            retry_policy=RetryPolicy(max_attempts=2, initial_delay=0.001),
+            retry_policy=RetryPolicy(config=RetryConfig(max_attempts=2, initial_delay=0.001)),
         )
         
         @app.get("/")
@@ -200,7 +202,7 @@ class TestRetryMiddlewareLimitations:
         
         app.add_middleware(
             RetryMiddleware,
-            retry_policy=RetryPolicy(max_attempts=3, initial_delay=0.001),
+            retry_policy=RetryPolicy(config=RetryConfig(max_attempts=3, initial_delay=0.001)),
         )
         
         call_count = {"count": 0}

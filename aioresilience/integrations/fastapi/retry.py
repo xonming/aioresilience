@@ -61,10 +61,13 @@ class RetryMiddleware(BaseHTTPMiddleware):
         if retry_policy:
             self.retry_policy = retry_policy
         else:
+            from ...config import RetryConfig
             self.retry_policy = RetryPolicy(
-                max_attempts=max_attempts,
-                initial_delay=initial_delay,
-                strategy=strategy,
+                config=RetryConfig(
+                    max_attempts=max_attempts,
+                    initial_delay=initial_delay,
+                    strategy=strategy,
+                )
             )
         
         self.exclude_paths = set(exclude_paths or ["/health", "/metrics", "/ready", "/healthz"])

@@ -4,6 +4,7 @@ Tests for Adaptive Concurrency Limiting
 import pytest
 import asyncio
 from aioresilience import AdaptiveConcurrencyLimiter
+from aioresilience.config import AdaptiveConcurrencyConfig
 
 
 class TestAdaptiveConcurrencyLimiter:
@@ -12,13 +13,14 @@ class TestAdaptiveConcurrencyLimiter:
     @pytest.mark.asyncio
     async def test_limiter_initialization(self):
         """Test limiter initializes correctly"""
-        limiter = AdaptiveConcurrencyLimiter(
+        config = AdaptiveConcurrencyConfig(
             initial_limit=100,
             min_limit=10,
             max_limit=1000,
             increase_rate=1.0,
             decrease_factor=0.9
         )
+        limiter = AdaptiveConcurrencyLimiter("test", config)
         
         assert limiter.current_limit == 100
         assert limiter.min_limit == 10
@@ -30,7 +32,8 @@ class TestAdaptiveConcurrencyLimiter:
     @pytest.mark.asyncio
     async def test_acquire_under_limit(self):
         """Test acquire succeeds when under limit"""
-        limiter = AdaptiveConcurrencyLimiter(initial_limit=10)
+        config = AdaptiveConcurrencyConfig(initial_limit=10)
+        limiter = AdaptiveConcurrencyLimiter("test", config)
         
         result = await limiter.acquire()
         assert result is True
@@ -39,7 +42,8 @@ class TestAdaptiveConcurrencyLimiter:
     @pytest.mark.asyncio
     async def test_acquire_at_limit(self):
         """Test acquire fails when at limit"""
-        limiter = AdaptiveConcurrencyLimiter(initial_limit=2)
+        config = AdaptiveConcurrencyConfig(initial_limit=2, min_limit=1, max_limit=10)
+        limiter = AdaptiveConcurrencyLimiter("test", config)
         
         # Fill to limit
         await limiter.acquire()
@@ -52,7 +56,8 @@ class TestAdaptiveConcurrencyLimiter:
     @pytest.mark.asyncio
     async def test_release_decrements_counter(self):
         """Test release decrements active count"""
-        limiter = AdaptiveConcurrencyLimiter(initial_limit=10)
+        config = AdaptiveConcurrencyConfig(initial_limit=10)
+        limiter = AdaptiveConcurrencyLimiter("test", config)
         
         await limiter.acquire()
         await limiter.acquire()
@@ -64,7 +69,8 @@ class TestAdaptiveConcurrencyLimiter:
     @pytest.mark.asyncio
     async def test_release_tracks_success(self):
         """Test release tracks success count"""
-        limiter = AdaptiveConcurrencyLimiter(initial_limit=10)
+        config = AdaptiveConcurrencyConfig(initial_limit=10)
+        limiter = AdaptiveConcurrencyLimiter("test", config)
         
         await limiter.acquire()
         await limiter.release(success=True)
@@ -75,7 +81,8 @@ class TestAdaptiveConcurrencyLimiter:
     @pytest.mark.asyncio
     async def test_release_tracks_failure(self):
         """Test release tracks failure count"""
-        limiter = AdaptiveConcurrencyLimiter(initial_limit=10)
+        config = AdaptiveConcurrencyConfig(initial_limit=10)
+        limiter = AdaptiveConcurrencyLimiter("test", config)
         
         await limiter.acquire()
         await limiter.release(success=False)
@@ -86,12 +93,13 @@ class TestAdaptiveConcurrencyLimiter:
     @pytest.mark.asyncio
     async def test_limit_increases_on_high_success_rate(self):
         """Test limit increases when success rate > 95%"""
-        limiter = AdaptiveConcurrencyLimiter(
+        config = AdaptiveConcurrencyConfig(
             initial_limit=100,
             max_limit=200,
             increase_rate=10.0,
             measurement_window=10
         )
+        limiter = AdaptiveConcurrencyLimiter("test", config)
         
         # Simulate 10 successful requests (100% success rate)
         for _ in range(10):
@@ -104,12 +112,13 @@ class TestAdaptiveConcurrencyLimiter:
     @pytest.mark.asyncio
     async def test_limit_decreases_on_low_success_rate(self):
         """Test limit decreases when success rate < 80%"""
-        limiter = AdaptiveConcurrencyLimiter(
+        config = AdaptiveConcurrencyConfig(
             initial_limit=100,
             min_limit=10,
             decrease_factor=0.5,
             measurement_window=10
         )
+        limiter = AdaptiveConcurrencyLimiter("test", config)
         
         # Simulate 10 requests with 50% success rate
         for i in range(10):
@@ -122,12 +131,13 @@ class TestAdaptiveConcurrencyLimiter:
     @pytest.mark.asyncio
     async def test_limit_respects_min_limit(self):
         """Test limit doesn't go below min_limit"""
-        limiter = AdaptiveConcurrencyLimiter(
+        config = AdaptiveConcurrencyConfig(
             initial_limit=20,
             min_limit=10,
             decrease_factor=0.1,
             measurement_window=10
         )
+        limiter = AdaptiveConcurrencyLimiter("test", config)
         
         # Simulate all failures
         for _ in range(10):
@@ -140,12 +150,13 @@ class TestAdaptiveConcurrencyLimiter:
     @pytest.mark.asyncio
     async def test_limit_respects_max_limit(self):
         """Test limit doesn't go above max_limit"""
-        limiter = AdaptiveConcurrencyLimiter(
+        config = AdaptiveConcurrencyConfig(
             initial_limit=90,
             max_limit=100,
             increase_rate=50.0,
             measurement_window=10
         )
+        limiter = AdaptiveConcurrencyLimiter("test", config)
         
         # Simulate all successes
         for _ in range(10):
@@ -158,10 +169,11 @@ class TestAdaptiveConcurrencyLimiter:
     @pytest.mark.asyncio
     async def test_measurement_window_resets_counters(self):
         """Test counters reset after measurement window"""
-        limiter = AdaptiveConcurrencyLimiter(
+        config = AdaptiveConcurrencyConfig(
             initial_limit=100,
             measurement_window=5
         )
+        limiter = AdaptiveConcurrencyLimiter("test", config)
         
         # Complete a measurement window
         for _ in range(5):
@@ -175,10 +187,11 @@ class TestAdaptiveConcurrencyLimiter:
     @pytest.mark.asyncio
     async def test_limit_stable_on_medium_success_rate(self):
         """Test limit stays stable when success rate is between 80-95%"""
-        limiter = AdaptiveConcurrencyLimiter(
+        config = AdaptiveConcurrencyConfig(
             initial_limit=100,
             measurement_window=10
         )
+        limiter = AdaptiveConcurrencyLimiter("test", config)
         
         initial_limit = limiter.current_limit
         
@@ -194,12 +207,13 @@ class TestAdaptiveConcurrencyLimiter:
     @pytest.mark.asyncio
     async def test_aimd_additive_increase(self):
         """Test AIMD additive increase behavior"""
-        limiter = AdaptiveConcurrencyLimiter(
+        config = AdaptiveConcurrencyConfig(
             initial_limit=100,
             max_limit=200,
             increase_rate=5.0,
             measurement_window=10
         )
+        limiter = AdaptiveConcurrencyLimiter("test", config)
         
         # High success rate - should increase by increase_rate
         for _ in range(10):
@@ -212,12 +226,13 @@ class TestAdaptiveConcurrencyLimiter:
     @pytest.mark.asyncio
     async def test_aimd_multiplicative_decrease(self):
         """Test AIMD multiplicative decrease behavior"""
-        limiter = AdaptiveConcurrencyLimiter(
+        config = AdaptiveConcurrencyConfig(
             initial_limit=100,
             min_limit=10,
             decrease_factor=0.8,
             measurement_window=10
         )
+        limiter = AdaptiveConcurrencyLimiter("test", config)
         
         # Low success rate - should multiply by decrease_factor
         for _ in range(10):
@@ -231,11 +246,12 @@ class TestAdaptiveConcurrencyLimiter:
     @pytest.mark.asyncio
     async def test_get_stats(self):
         """Test get_stats returns correct information"""
-        limiter = AdaptiveConcurrencyLimiter(
+        config = AdaptiveConcurrencyConfig(
             initial_limit=100,
             min_limit=10,
             max_limit=200
         )
+        limiter = AdaptiveConcurrencyLimiter("test", config)
         
         # Add some activity
         for _ in range(5):
@@ -263,12 +279,13 @@ class TestAdaptiveConcurrencyAIMD:
     @pytest.mark.asyncio
     async def test_multiple_increase_cycles(self):
         """Test limit increases over multiple cycles"""
-        limiter = AdaptiveConcurrencyLimiter(
+        config = AdaptiveConcurrencyConfig(
             initial_limit=100,
             max_limit=200,
             increase_rate=5.0,
             measurement_window=10
         )
+        limiter = AdaptiveConcurrencyLimiter("test", config)
         
         initial_limit = limiter.current_limit
         
@@ -284,12 +301,13 @@ class TestAdaptiveConcurrencyAIMD:
     @pytest.mark.asyncio
     async def test_multiple_decrease_cycles(self):
         """Test limit decreases over multiple cycles"""
-        limiter = AdaptiveConcurrencyLimiter(
+        config = AdaptiveConcurrencyConfig(
             initial_limit=100,
             min_limit=10,
             decrease_factor=0.9,
             measurement_window=10
         )
+        limiter = AdaptiveConcurrencyLimiter("test", config)
         
         initial_limit = limiter.current_limit
         
@@ -305,12 +323,13 @@ class TestAdaptiveConcurrencyAIMD:
     @pytest.mark.asyncio
     async def test_oscillation_behavior(self):
         """Test behavior with oscillating success rates"""
-        limiter = AdaptiveConcurrencyLimiter(
+        config = AdaptiveConcurrencyConfig(
             initial_limit=100,
             min_limit=50,
             max_limit=150,
             measurement_window=10
         )
+        limiter = AdaptiveConcurrencyLimiter("test", config)
         
         limits = []
         
@@ -333,7 +352,8 @@ class TestAdaptiveConcurrencyThreadSafety:
     @pytest.mark.asyncio
     async def test_concurrent_acquire(self):
         """Test concurrent acquire is thread-safe"""
-        limiter = AdaptiveConcurrencyLimiter(initial_limit=50)
+        config = AdaptiveConcurrencyConfig(initial_limit=50)
+        limiter = AdaptiveConcurrencyLimiter("test", config)
         
         results = await asyncio.gather(*[
             limiter.acquire() for _ in range(100)
@@ -347,7 +367,8 @@ class TestAdaptiveConcurrencyThreadSafety:
     @pytest.mark.asyncio
     async def test_concurrent_release(self):
         """Test concurrent release is thread-safe"""
-        limiter = AdaptiveConcurrencyLimiter(initial_limit=100)
+        config = AdaptiveConcurrencyConfig(initial_limit=100)
+        limiter = AdaptiveConcurrencyLimiter("test", config)
         
         # Acquire some slots
         for _ in range(50):
@@ -365,10 +386,11 @@ class TestAdaptiveConcurrencyThreadSafety:
     @pytest.mark.asyncio
     async def test_concurrent_acquire_release_with_adjustment(self):
         """Test concurrent operations with limit adjustment"""
-        limiter = AdaptiveConcurrencyLimiter(
+        config = AdaptiveConcurrencyConfig(
             initial_limit=50,
             measurement_window=20
         )
+        limiter = AdaptiveConcurrencyLimiter("test", config)
         
         async def acquire_release_cycle(success: bool):
             if await limiter.acquire():
@@ -389,10 +411,11 @@ class TestAdaptiveConcurrencyThreadSafety:
     @pytest.mark.asyncio
     async def test_limit_adjustment_atomicity(self):
         """Test limit adjustments are atomic"""
-        limiter = AdaptiveConcurrencyLimiter(
+        config = AdaptiveConcurrencyConfig(
             initial_limit=100,
             measurement_window=10
         )
+        limiter = AdaptiveConcurrencyLimiter("test", config)
         
         # Trigger multiple simultaneous measurement window completions
         async def complete_window(success_rate: float):
@@ -416,12 +439,13 @@ class TestAdaptiveConcurrencyIntegration:
     @pytest.mark.asyncio
     async def test_realistic_api_scenario(self):
         """Test realistic API with varying load"""
-        limiter = AdaptiveConcurrencyLimiter(
+        config = AdaptiveConcurrencyConfig(
             initial_limit=50,
             min_limit=10,
             max_limit=100,
             measurement_window=20
         )
+        limiter = AdaptiveConcurrencyLimiter("test", config)
         
         processed = []
         rejected = []
@@ -452,12 +476,13 @@ class TestAdaptiveConcurrencyIntegration:
     @pytest.mark.asyncio
     async def test_adaptive_behavior_under_degradation(self):
         """Test limiter adapts when service degrades"""
-        limiter = AdaptiveConcurrencyLimiter(
+        config = AdaptiveConcurrencyConfig(
             initial_limit=100,
             min_limit=10,
             max_limit=200,
             measurement_window=10
         )
+        limiter = AdaptiveConcurrencyLimiter("test", config)
         
         initial_limit = limiter.current_limit
         limits_over_time = [initial_limit]
@@ -488,11 +513,12 @@ class TestAdaptiveConcurrencyIntegration:
     @pytest.mark.asyncio
     async def test_gradual_load_increase(self):
         """Test behavior with gradually increasing load"""
-        limiter = AdaptiveConcurrencyLimiter(
+        config = AdaptiveConcurrencyConfig(
             initial_limit=50,
             max_limit=200,
             measurement_window=10
         )
+        limiter = AdaptiveConcurrencyLimiter("test", config)
         
         # Gradually increase load with high success rate
         for batch in range(5):
@@ -506,7 +532,8 @@ class TestAdaptiveConcurrencyIntegration:
     @pytest.mark.asyncio
     async def test_burst_handling(self):
         """Test handling of burst traffic"""
-        limiter = AdaptiveConcurrencyLimiter(initial_limit=20)
+        config = AdaptiveConcurrencyConfig(initial_limit=20)
+        limiter = AdaptiveConcurrencyLimiter("test", config)
         
         async def process_request():
             if await limiter.acquire():

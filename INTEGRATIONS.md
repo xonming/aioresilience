@@ -1,14 +1,14 @@
 # Framework Integrations Guide
 
-**aioresilience** provides seamless integrations with major async Python web frameworks.
+**aioresilience** provides integrations with async Python web frameworks.
 
 ## Available Integrations
 
-| Framework | Status | Type | Performance |
-|-----------|--------|------|-------------|
-| **FastAPI / Starlette** | Complete | ASGI | Excellent |
-| **Sanic** | Complete | ASGI | Excellent |
-| **aiohttp** | Complete | ASGI | Excellent |
+| Framework | Type |
+|-----------|------|
+| **FastAPI / Starlette** | ASGI |
+| **Sanic** | ASGI |
+| **aiohttp** | ASGI |
 
 ---
 

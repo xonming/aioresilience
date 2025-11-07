@@ -7,12 +7,19 @@ Dependencies: None (pure Python async)
 """
 
 import asyncio
-from typing import Optional, Callable, Any
+from typing import Optional, Callable, Any, Type
 from functools import wraps
-from typing import Optional, Callable, Any
 
 from .events import EventEmitter, PatternType, EventType, LoadShedderEvent
 from .logging import get_logger
+from .config import BackpressureConfig
+from .exceptions import (
+    BackpressureError,
+    BackpressureReason,
+    ExceptionHandler,
+    ExceptionContext,
+    ExceptionConfig,
+)
 
 logger = get_logger(__name__)
 
@@ -45,21 +52,23 @@ class BackpressureManager:
     
     def __init__(
         self,
-        max_pending: int = 1000,
-        high_water_mark: int = 800,
-        low_water_mark: int = 200,
+        config: Optional[BackpressureConfig] = None,
+        exceptions: Optional[ExceptionConfig] = None,
     ):
         """
         Initialize backpressure manager.
         
         Args:
-            max_pending: Maximum pending items (hard limit)
-            high_water_mark: Start applying backpressure
-            low_water_mark: Stop applying backpressure
+            config: Optional BackpressureConfig for pattern settings
+            exceptions: Optional ExceptionConfig for exception handling
         """
-        self.max_pending = max_pending
-        self.high_water_mark = high_water_mark
-        self.low_water_mark = low_water_mark
+        # Initialize config with defaults
+        if config is None:
+            config = BackpressureConfig()
+        
+        self.max_pending = config.max_pending
+        self.high_water_mark = config.high_water_mark
+        self.low_water_mark = config.low_water_mark
         
         self.pending_count = 0
         self.backpressure_active = False
@@ -71,6 +80,19 @@ class BackpressureManager:
         
         # Event emitter for monitoring
         self.events = EventEmitter(pattern_name=f"backpressure-{id(self)}")
+        
+        # Initialize exception handling
+        if exceptions is None:
+            exceptions = ExceptionConfig()
+        
+        self._exception_handler = ExceptionHandler(
+            pattern_name=f"backpressure-{id(self)}",
+            pattern_type="backpressure",
+            handled_exceptions=exceptions.handled_exceptions or (Exception,),
+            exception_type=exceptions.exception_type or BackpressureError,
+            exception_transformer=exceptions.exception_transformer,
+            on_exception=exceptions.on_exception,
+        )
     
     @property
     def is_overloaded(self) -> bool:
@@ -84,36 +106,76 @@ class BackpressureManager:
     
     async def acquire(self, timeout: Optional[float] = None) -> bool:
         """
-        Acquire slot for processing.
+        Acquire slot for processing with adaptive backpressure.
+        
+        Behavior:
+        - Below high_water_mark: acquire immediately
+        - At max_pending: reject immediately
+        - Between high and max with backpressure: wait for low_water_mark
         
         Args:
-            timeout: Wait timeout in seconds (None = wait forever)
+            timeout: Wait timeout in seconds (None = use default 5s to prevent deadlock)
         
         Returns:
             True if acquired, False if rejected
         """
-        # Hard limit check
-        if self.pending_count >= self.max_pending:
-            self.total_rejected += 1
-            logger.warning(f"Backpressure: Max pending reached ({self.pending_count}/{self.max_pending})")
-            return False
+        # Use default timeout to prevent infinite waits
+        effective_timeout = timeout if timeout is not None else 5.0
         
-        # Wait if backpressure is active
+        # Fast path: check if we can acquire immediately
+        async with self._lock:
+            # Hard reject if at max capacity
+            if self.pending_count >= self.max_pending:
+                self.total_rejected += 1
+                logger.warning(f"Backpressure: Max pending reached ({self.pending_count}/{self.max_pending})")
+                return False
+            
+            # Fast path: below high water mark, acquire immediately
+            if self.pending_count < self.high_water_mark:
+                self.pending_count += 1
+                
+                # Check if we just crossed the high water mark
+                if self.pending_count >= self.high_water_mark and not self.backpressure_active:
+                    self.backpressure_active = True
+                    self._resume_event.clear()
+                    logger.warning(f"Backpressure ACTIVE: {self.pending_count}/{self.high_water_mark}")
+                    
+                    # Emit backpressure threshold exceeded event
+                    await self.events.emit(LoadShedderEvent(
+                        pattern_type=PatternType.BACKPRESSURE,
+                        event_type=EventType.THRESHOLD_EXCEEDED,
+                        pattern_name=self.events.pattern_name,
+                        active_requests=self.pending_count,
+                        max_requests=self.max_pending,
+                        load_level="high",
+                        reason=f"High water mark exceeded: {self.pending_count}/{self.high_water_mark}",
+                    ))
+                
+                return True
+        
+        # Between high_water_mark and max_pending: wait if backpressure is active
+        # This enforces flow control - producers must wait for consumers to drain
         if self.backpressure_active:
+            logger.info(f"Backpressure active, waiting for low water mark... (pending={self.pending_count}, timeout={effective_timeout})")
             try:
-                await asyncio.wait_for(self._resume_event.wait(), timeout=timeout)
+                # Wait for backpressure to deactivate (consumers drain to low_water_mark)
+                await asyncio.wait_for(self._resume_event.wait(), timeout=effective_timeout)
+                logger.info(f"Backpressure deactivated, retrying acquire")
             except asyncio.TimeoutError:
                 self.total_rejected += 1
-                logger.warning("Backpressure: Timeout waiting for capacity")
+                logger.warning(f"Backpressure timeout after {effective_timeout}s, rejecting")
                 return False
         
+        # After waiting (or if no backpressure), acquire with lock
         async with self._lock:
+            # Recheck capacity (might have changed during wait)
             if self.pending_count >= self.max_pending:
+                self.total_rejected += 1
                 return False
             
             self.pending_count += 1
             
-            # Activate backpressure if needed
+            # Activate backpressure if we just crossed high water mark
             if self.pending_count >= self.high_water_mark and not self.backpressure_active:
                 self.backpressure_active = True
                 self._resume_event.clear()
@@ -129,8 +191,8 @@ class BackpressureManager:
                     load_level="high",
                     reason=f"High water mark exceeded: {self.pending_count}/{self.high_water_mark}",
                 ))
-        
-        return True
+            
+            return True
     
     async def release(self):
         """Release processing slot"""
@@ -153,6 +215,17 @@ class BackpressureManager:
                     load_level="normal",
                     reason=f"Low water mark reached: {self.pending_count}/{self.low_water_mark}",
                 ))
+    
+    async def _raise_backpressure_error(self, reason: BackpressureReason):
+        """Raise backpressure error using configured exception handler"""
+        _, exc = await self._exception_handler.handle_exception(
+            reason=reason,
+            original_exc=None,
+            message="Backpressure: System overloaded",
+            pending_count=self.pending_count,
+            max_pending=self.max_pending,
+        )
+        raise exc
     
     def get_stats(self) -> dict:
         """Get backpressure statistics"""
@@ -182,7 +255,7 @@ def with_backpressure(backpressure: BackpressureManager, timeout: Optional[float
         @wraps(func)
         async def wrapper(*args, **kwargs) -> Any:
             if not await backpressure.acquire(timeout):
-                raise RuntimeError("Backpressure: System overloaded")
+                await backpressure._raise_backpressure_error(BackpressureReason.SYSTEM_OVERLOADED)
             
             try:
                 return await func(*args, **kwargs)

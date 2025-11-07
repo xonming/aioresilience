@@ -1,9 +1,15 @@
 """
 Adaptive Concurrency Limiter
 
-AIMD (Additive Increase Multiplicative Decrease) algorithm for auto-adjusting concurrency.
+Implements an AIMD (Additive Increase, Multiplicative Decrease) algorithm to
+dynamically adjust concurrency limits based on observed success rates.
 
-Dependencies: None (pure Python async)
+Usage is configuration-driven and consistent with other aioresilience patterns:
+- Initialize an AdaptiveConcurrencyConfig with your desired parameters.
+- Pass it to AdaptiveConcurrencyLimiter together with a name.
+- Use either the async context manager protocol or explicit acquire/release calls.
+
+Dependencies: None (pure Python async).
 """
 
 import asyncio
@@ -12,64 +18,99 @@ from typing import Optional
 
 from .events import EventEmitter, PatternType, EventType, LoadShedderEvent
 from .logging import get_logger
+from .config import AdaptiveConcurrencyConfig
 
 logger = get_logger(__name__)
 
 
 class AdaptiveConcurrencyLimiter:
     """
-    Adaptive concurrency limiter using AIMD algorithm.
-    
-    Automatically adjusts concurrency limits based on success rate.
-    
-    Features:
+    Adaptive concurrency limiter using an AIMD algorithm.
+
+    This limiter automatically tunes the allowed concurrency level based on
+    recent success rates. It is designed for high-throughput asyncio services
+    and integrates with the shared configuration and event systems.
+
+    Key characteristics:
     - AIMD algorithm (TCP-like congestion control)
-    - Success rate measurement
-    - Configurable limits and adjustment rates
+    - Config-based initialization via AdaptiveConcurrencyConfig
+    - Async context manager support for ergonomic usage
+    - Explicit acquire/release API for advanced control
+    - Emits load-level change events for observability
     - No external dependencies
-    
-    Example:
-        limiter = AdaptiveConcurrencyLimiter(
+
+    Basic usage:
+
+        from aioresilience import AdaptiveConcurrencyLimiter
+        from aioresilience.config import AdaptiveConcurrencyConfig
+
+        config = AdaptiveConcurrencyConfig(
             initial_limit=100,
             min_limit=10,
-            max_limit=1000
+            max_limit=1000,
         )
-        
-        if await limiter.acquire():
-            try:
-                result = await process_request()
-                await limiter.release(success=True)
-            except Exception:
-                await limiter.release(success=False)
+        limiter = AdaptiveConcurrencyLimiter("api-limiter", config)
+
+        # Recommended: async context manager
+        async def handle_request():
+            async with limiter:
+                return await process_request()
+
+        # Manual acquire/release
+        async def handle_request_manual():
+            if await limiter.acquire():
+                try:
+                    result = await process_request()
+                    await limiter.release(success=True)
+                    return result
+                except Exception:
+                    await limiter.release(success=False)
+                    raise
+            else:
+                raise RuntimeError("Adaptive limiter at capacity")
+
     """
     
     def __init__(
         self,
-        initial_limit: int = 100,
-        min_limit: int = 10,
-        max_limit: int = 1000,
-        increase_rate: float = 1.0,
-        decrease_factor: float = 0.9,
-        measurement_window: int = 100,
+        name: str = "adaptive-concurrency",
+        config: Optional[AdaptiveConcurrencyConfig] = None,
     ):
         """
-        Initialize adaptive limiter.
-        
+        Initialize adaptive concurrency limiter.
+
         Args:
-            initial_limit: Starting concurrency limit
-            min_limit: Minimum concurrency limit
-            max_limit: Maximum concurrency limit
-            increase_rate: Additive increase per success window
-            decrease_factor: Multiplicative decrease on failure
-            measurement_window: Number of requests to measure success rate
+            name:
+                Name of the limiter instance. Used for metrics and events.
+            config:
+                AdaptiveConcurrencyConfig instance. If omitted, a default,
+                validated configuration is used.
+
+        Example:
+            >>> from aioresilience.config import AdaptiveConcurrencyConfig
+            >>> cfg = AdaptiveConcurrencyConfig(
+            ...     initial_limit=100,
+            ...     min_limit=10,
+            ...     max_limit=1000,
+            ...     success_threshold=0.95,
+            ...     failure_threshold=0.80,
+            ... )
+            >>> limiter = AdaptiveConcurrencyLimiter("api-limiter", cfg)
         """
-        self.current_limit = initial_limit
-        self.min_limit = min_limit
-        self.max_limit = max_limit
-        self.increase_rate = increase_rate
-        self.decrease_factor = decrease_factor
-        self.measurement_window = measurement_window
+        self.name = name
+        self.config = config or AdaptiveConcurrencyConfig()
         
+        # Initialize from config
+        self.current_limit = self.config.initial_limit
+        self.min_limit = self.config.min_limit
+        self.max_limit = self.config.max_limit
+        self.increase_rate = self.config.increase_rate
+        self.decrease_factor = self.config.decrease_factor
+        self.measurement_window = self.config.measurement_window
+        self.success_threshold = self.config.success_threshold
+        self.failure_threshold = self.config.failure_threshold
+        
+        # Runtime state
         self.active_count = 0
         self.success_count = 0
         self.failure_count = 0
@@ -78,7 +119,7 @@ class AdaptiveConcurrencyLimiter:
         self._lock = asyncio.Lock()
         
         # Event emitter for monitoring
-        self.events = EventEmitter(pattern_name=f"adaptive-concurrency-{id(self)}")
+        self.events = EventEmitter(pattern_name=name)
     
     async def acquire(self) -> bool:
         """
@@ -101,6 +142,8 @@ class AdaptiveConcurrencyLimiter:
         Args:
             success: Whether request succeeded
         """
+        event_to_emit = None
+        
         async with self._lock:
             self.active_count = max(0, self.active_count - 1)
             
@@ -111,16 +154,25 @@ class AdaptiveConcurrencyLimiter:
             
             # Adjust limit every measurement_window requests
             if (self.success_count + self.failure_count) >= self.measurement_window:
-                await self._adjust_limit()
+                event_to_emit = await self._adjust_limit()
                 self.success_count = 0
                 self.failure_count = 0
+        
+        # Emit event outside of lock
+        if event_to_emit:
+            await self.events.emit(event_to_emit)
     
-    async def _adjust_limit(self):
-        """Adjust concurrency limit using AIMD algorithm"""
+    async def _adjust_limit(self) -> Optional[LoadShedderEvent]:
+        """
+        Adjust concurrency limit using AIMD algorithm.
+        
+        Returns:
+            Event to emit (or None if no adjustment made)
+        """
         total = self.success_count + self.failure_count
         success_rate = self.success_count / total if total > 0 else 0
         
-        if success_rate > 0.95:
+        if success_rate > self.success_threshold:
             # High success rate: increase limit (additive)
             old_limit = self.current_limit
             self.current_limit = min(
@@ -128,20 +180,23 @@ class AdaptiveConcurrencyLimiter:
                 self.current_limit + self.increase_rate
             )
             if old_limit != self.current_limit:
-                logger.info(f"Concurrency limit increased: {old_limit} → {self.current_limit}")
+                logger.info(
+                    f"Adaptive limiter '{self.name}': Limit increased {old_limit} → {self.current_limit} "
+                    f"(success rate: {success_rate:.2%})"
+                )
                 
-                # Emit limit change event
-                await self.events.emit(LoadShedderEvent(
+                # Create event to emit outside lock
+                return LoadShedderEvent(
                     pattern_type=PatternType.ADAPTIVE_CONCURRENCY,
                     event_type=EventType.LOAD_LEVEL_CHANGE,
-                    pattern_name=self.events.pattern_name,
+                    pattern_name=self.name,
                     active_requests=self.active_count,
                     max_requests=int(self.current_limit),
                     load_level=f"increased:{old_limit}->{self.current_limit}",
                     reason=f"High success rate: {success_rate:.2%}",
-                ))
+                )
         
-        elif success_rate < 0.80:
+        elif success_rate < self.failure_threshold:
             # Low success rate: decrease limit (multiplicative)
             old_limit = self.current_limit
             self.current_limit = max(
@@ -149,18 +204,53 @@ class AdaptiveConcurrencyLimiter:
                 int(self.current_limit * self.decrease_factor)
             )
             if old_limit != self.current_limit:
-                logger.warning(f"Concurrency limit decreased: {old_limit} → {self.current_limit}")
+                logger.warning(
+                    f"Adaptive limiter '{self.name}': Limit decreased {old_limit} → {self.current_limit} "
+                    f"(success rate: {success_rate:.2%})"
+                )
                 
-                # Emit limit change event
-                await self.events.emit(LoadShedderEvent(
+                # Create event to emit outside lock
+                return LoadShedderEvent(
                     pattern_type=PatternType.ADAPTIVE_CONCURRENCY,
                     event_type=EventType.LOAD_LEVEL_CHANGE,
-                    pattern_name=self.events.pattern_name,
+                    pattern_name=self.name,
                     active_requests=self.active_count,
                     max_requests=int(self.current_limit),
                     load_level=f"decreased:{old_limit}->{self.current_limit}",
                     reason=f"Low success rate: {success_rate:.2%}",
-                ))
+                )
+        
+        return None
+    
+    async def __aenter__(self):
+        """
+        Async context manager entry.
+        
+        Returns:
+            Self if acquired, raises if at limit
+            
+        Example:
+            >>> async with limiter:
+            ...     result = await process_request()
+        """
+        acquired = await self.acquire()
+        if not acquired:
+            raise RuntimeError(f"Adaptive limiter '{self.name}' at capacity ({self.current_limit})")
+        return self
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """
+        Async context manager exit.
+        
+        Args:
+            exc_type: Exception type (if any)
+            exc_val: Exception value (if any)
+            exc_tb: Exception traceback (if any)
+        """
+        # Consider request successful if no exception
+        success = exc_type is None
+        await self.release(success=success)
+        return False  # Don't suppress exceptions
     
     def get_stats(self) -> dict:
         """Get limiter statistics"""

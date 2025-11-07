@@ -9,6 +9,7 @@ from starlette.status import HTTP_503_SERVICE_UNAVAILABLE
 from starlette.responses import JSONResponse
 
 from ...logging import get_logger
+from ...exceptions import LoadSheddingError, LoadSheddingReason
 
 logger = get_logger(__name__)
 

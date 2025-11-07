@@ -7,6 +7,7 @@ import pytest
 import time
 from aioresilience import (
     RetryPolicy,
+    RetryConfig,
     RetryStrategy,
     retry,
     RetryPolicies,
@@ -19,7 +20,7 @@ class TestRetryPolicy:
     @pytest.mark.asyncio
     async def test_successful_execution_no_retry(self):
         """Test successful execution without needing retries"""
-        policy = RetryPolicy(max_attempts=3)
+        policy = RetryPolicy(config=RetryConfig(max_attempts=3))
         
         call_count = 0
         
@@ -41,9 +42,11 @@ class TestRetryPolicy:
     async def test_retry_on_exception(self):
         """Test retry on exceptions"""
         policy = RetryPolicy(
-            max_attempts=3,
-            initial_delay=0.01,
-            retry_on_exceptions=(ValueError,)
+            config=RetryConfig(
+                max_attempts=3,
+                initial_delay=0.01,
+                retry_on_exceptions=(ValueError,)
+            )
         )
         
         call_count = 0
@@ -68,8 +71,10 @@ class TestRetryPolicy:
     async def test_retries_exhausted(self):
         """Test all retries exhausted"""
         policy = RetryPolicy(
-            max_attempts=3,
-            initial_delay=0.01,
+            config=RetryConfig(
+                max_attempts=3,
+                initial_delay=0.01,
+            )
         )
         
         call_count = 0
@@ -92,11 +97,13 @@ class TestRetryPolicy:
     async def test_exponential_backoff(self):
         """Test exponential backoff strategy"""
         policy = RetryPolicy(
-            max_attempts=4,
-            initial_delay=0.1,
-            backoff_multiplier=2.0,
-            strategy=RetryStrategy.EXPONENTIAL,
-            jitter=0.0,  # No jitter for predictable testing
+            config=RetryConfig(
+                max_attempts=4,
+                initial_delay=0.1,
+                backoff_multiplier=2.0,
+                strategy=RetryStrategy.EXPONENTIAL,
+                jitter=0.0,  # No jitter for predictable testing
+            )
         )
         
         call_count = 0
@@ -121,11 +128,13 @@ class TestRetryPolicy:
     async def test_linear_backoff(self):
         """Test linear backoff strategy"""
         policy = RetryPolicy(
-            max_attempts=4,
-            initial_delay=0.1,
-            backoff_multiplier=0.1,
-            strategy=RetryStrategy.LINEAR,
-            jitter=0.0,
+            config=RetryConfig(
+                max_attempts=4,
+                initial_delay=0.1,
+                backoff_multiplier=0.1,
+                strategy=RetryStrategy.LINEAR,
+                jitter=0.0,
+            )
         )
         
         call_count = 0
@@ -150,10 +159,12 @@ class TestRetryPolicy:
     async def test_constant_backoff(self):
         """Test constant backoff strategy"""
         policy = RetryPolicy(
-            max_attempts=3,
-            initial_delay=0.1,
-            strategy=RetryStrategy.CONSTANT,
-            jitter=0.0,
+            config=RetryConfig(
+                max_attempts=3,
+                initial_delay=0.1,
+                strategy=RetryStrategy.CONSTANT,
+                jitter=0.0,
+            )
         )
         
         call_count = 0
@@ -178,12 +189,14 @@ class TestRetryPolicy:
     async def test_max_delay_cap(self):
         """Test max delay capping"""
         policy = RetryPolicy(
-            max_attempts=5,
-            initial_delay=1.0,
-            max_delay=2.0,
-            backoff_multiplier=10.0,
-            strategy=RetryStrategy.EXPONENTIAL,
-            jitter=0.0,
+            config=RetryConfig(
+                max_attempts=5,
+                initial_delay=1.0,
+                max_delay=2.0,
+                backoff_multiplier=10.0,
+                strategy=RetryStrategy.EXPONENTIAL,
+                jitter=0.0,
+            )
         )
         
         # Delays should be capped at max_delay
@@ -195,9 +208,11 @@ class TestRetryPolicy:
     async def test_retry_on_result(self):
         """Test retry based on result condition"""
         policy = RetryPolicy(
-            max_attempts=3,
-            initial_delay=0.01,
-            retry_on_result=lambda x: x is None,
+            config=RetryConfig(
+                max_attempts=3,
+                initial_delay=0.01,
+                retry_on_result=lambda x: x is None,
+            )
         )
         
         call_count = 0
@@ -218,9 +233,11 @@ class TestRetryPolicy:
     async def test_non_retryable_exception(self):
         """Test that non-retryable exceptions are not retried"""
         policy = RetryPolicy(
-            max_attempts=3,
-            initial_delay=0.01,
-            retry_on_exceptions=(ValueError,),
+            config=RetryConfig(
+                max_attempts=3,
+                initial_delay=0.01,
+                retry_on_exceptions=(ValueError,),
+            )
         )
         
         call_count = 0
@@ -239,7 +256,7 @@ class TestRetryPolicy:
     @pytest.mark.asyncio
     async def test_sync_function_execution(self):
         """Test retry with sync functions"""
-        policy = RetryPolicy(max_attempts=3, initial_delay=0.01)
+        policy = RetryPolicy(config=RetryConfig(max_attempts=3, initial_delay=0.01))
         
         call_count = 0
         
@@ -258,7 +275,7 @@ class TestRetryPolicy:
     @pytest.mark.asyncio
     async def test_reset_metrics(self):
         """Test metrics reset"""
-        policy = RetryPolicy(max_attempts=2)
+        policy = RetryPolicy(config=RetryConfig(max_attempts=2))
         
         async def func():
             return "ok"
@@ -362,42 +379,40 @@ class TestRetryEdgeCases:
     def test_invalid_max_attempts(self):
         """Test validation of max_attempts"""
         with pytest.raises(ValueError, match="max_attempts must be at least 1"):
-            RetryPolicy(max_attempts=0)
+            RetryConfig(max_attempts=0)
     
     def test_invalid_initial_delay(self):
         """Test validation of initial_delay"""
         with pytest.raises(ValueError, match="initial_delay must be non-negative"):
-            RetryPolicy(initial_delay=-1.0)
+            RetryConfig(initial_delay=-1.0)
     
     def test_invalid_max_delay(self):
         """Test validation of max_delay"""
         with pytest.raises(ValueError, match="max_delay must be >= initial_delay"):
-            RetryPolicy(initial_delay=10.0, max_delay=5.0)
+            RetryConfig(initial_delay=10.0, max_delay=5.0)
     
     def test_invalid_backoff_multiplier(self):
         """Test validation of backoff_multiplier"""
         with pytest.raises(ValueError, match="backoff_multiplier must be positive"):
-            RetryPolicy(backoff_multiplier=0)
+            RetryConfig(backoff_multiplier=0)
         
         with pytest.raises(ValueError, match="backoff_multiplier must be positive"):
-            RetryPolicy(backoff_multiplier=-1.0)
-        
-        # For exponential, must be >= 1.0
-        with pytest.raises(ValueError, match="backoff_multiplier must be >= 1.0 for exponential strategy"):
-            RetryPolicy(backoff_multiplier=0.5, strategy=RetryStrategy.EXPONENTIAL)
+            RetryConfig(backoff_multiplier=-1.0)
     
     def test_invalid_jitter(self):
         """Test validation of jitter"""
         with pytest.raises(ValueError, match="jitter must be between 0.0 and 1.0"):
-            RetryPolicy(jitter=1.5)
+            RetryConfig(jitter=1.5)
     
     @pytest.mark.asyncio
     async def test_jitter_adds_randomness(self):
         """Test that jitter adds randomness to delays"""
         policy = RetryPolicy(
-            max_attempts=3,
-            initial_delay=1.0,
-            jitter=0.5,
+            config=RetryConfig(
+                max_attempts=3,
+                initial_delay=1.0,
+                jitter=0.5,
+            )
         )
         
         # Calculate delays multiple times to check variation

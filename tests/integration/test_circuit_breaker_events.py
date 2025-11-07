@@ -4,8 +4,9 @@ Integration tests for CircuitBreaker event emission
 
 import pytest
 import asyncio
-from aioresilience import CircuitBreaker
+from aioresilience import CircuitBreaker, CircuitConfig
 from aioresilience.events import global_bus, EventType
+from aioresilience.circuit_breaker import CircuitState
 
 
 async def failing_operation():
@@ -28,11 +29,11 @@ class TestCircuitBreakerEvents:
     @pytest.mark.asyncio
     async def test_circuit_breaker_emits_failure_events(self):
         """Test circuit breaker emits failure events"""
-        circuit = CircuitBreaker(name="test", failure_threshold=3)
+        circuit = CircuitBreaker(name="test", config=CircuitConfig(failure_threshold=3))
         
         failure_events = []
         
-        @circuit.events.on("call_failure")
+        @circuit.events.on(EventType.CALL_FAILURE.value)
         async def capture_failures(event):
             failure_events.append(event)
         
@@ -51,11 +52,11 @@ class TestCircuitBreakerEvents:
     @pytest.mark.asyncio
     async def test_circuit_breaker_emits_success_events(self):
         """Test circuit breaker emits success events"""
-        circuit = CircuitBreaker(name="test")
+        circuit = CircuitBreaker(name="test", config=CircuitConfig())
         
         success_events = []
         
-        @circuit.events.on("call_success")
+        @circuit.events.on(EventType.CALL_SUCCESS.value)
         async def capture_success(event):
             success_events.append(event)
         
@@ -69,11 +70,11 @@ class TestCircuitBreakerEvents:
     @pytest.mark.asyncio
     async def test_circuit_breaker_emits_state_change_to_open(self):
         """Test circuit breaker emits state change when opening"""
-        circuit = CircuitBreaker(name="test", failure_threshold=2)
+        circuit = CircuitBreaker(name="test", config=CircuitConfig(failure_threshold=2))
         
         state_changes = []
         
-        @circuit.events.on("state_change")
+        @circuit.events.on(EventType.STATE_CHANGE.value)
         async def capture_state_change(event):
             state_changes.append(event)
         
@@ -86,17 +87,17 @@ class TestCircuitBreakerEvents:
         
         # Should have one state change: CLOSED -> OPEN
         assert len(state_changes) == 1
-        assert state_changes[0].old_state == "closed"
-        assert state_changes[0].new_state == "open"
+        assert state_changes[0].old_state == CircuitState.CLOSED
+        assert state_changes[0].new_state == CircuitState.OPEN
     
     @pytest.mark.asyncio
     async def test_circuit_breaker_reset_emits_event(self):
         """Test manual reset emits reset event"""
-        circuit = CircuitBreaker(name="test", failure_threshold=2)
+        circuit = CircuitBreaker(name="test", config=CircuitConfig(failure_threshold=2))
         
         reset_events = []
         
-        @circuit.events.on("circuit_reset")
+        @circuit.events.on(EventType.CIRCUIT_RESET.value)
         async def capture_reset(event):
             reset_events.append(event)
         
@@ -112,7 +113,7 @@ class TestCircuitBreakerEvents:
         
         assert len(reset_events) == 1
         assert reset_events[0].event_type == EventType.CIRCUIT_RESET
-        assert reset_events[0].new_state == "closed"
+        assert reset_events[0].new_state == CircuitState.CLOSED
     
     @pytest.mark.asyncio
     async def test_global_bus_receives_circuit_events(self):
@@ -123,8 +124,8 @@ class TestCircuitBreakerEvents:
         async def capture_all(event):
             all_events.append(event)
         
-        circuit1 = CircuitBreaker(name="circuit-1", failure_threshold=2)
-        circuit2 = CircuitBreaker(name="circuit-2", failure_threshold=2)
+        circuit1 = CircuitBreaker(name="circuit-1", config=CircuitConfig(failure_threshold=2))
+        circuit2 = CircuitBreaker(name="circuit-2", config=CircuitConfig(failure_threshold=2))
         
         # Generate events from both circuits
         await circuit1.call(successful_operation)

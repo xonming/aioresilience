@@ -7,24 +7,32 @@ Supports async and sync operations with comprehensive metrics.
 
 import time
 import asyncio
-from typing import Optional, Callable, Any, TypeVar
+from typing import Optional, Callable, Any, TypeVar, Type, Tuple
 from dataclasses import dataclass
-from enum import Enum
+from enum import IntEnum
 from functools import wraps
 
 from .events import EventEmitter, PatternType, EventType, CircuitBreakerEvent
 from .logging import get_logger
+from .config import CircuitConfig
+from .exceptions import (
+    CircuitBreakerOpenError,
+    CircuitBreakerReason,
+    ExceptionHandler,
+    ExceptionContext,
+    ExceptionConfig,
+)
 
 logger = get_logger(__name__)
 
 T = TypeVar('T')
 
 
-class CircuitState(Enum):
-    """Circuit breaker states"""
-    CLOSED = "closed"  # Normal operation
-    OPEN = "open"  # Blocking requests
-    HALF_OPEN = "half_open"  # Testing recovery
+class CircuitState(IntEnum):
+    """Circuit breaker states (IntEnum for performance)"""
+    CLOSED = 0      # Normal operation (most common, check first)
+    OPEN = 1        # Blocking requests
+    HALF_OPEN = 2   # Testing recovery
 
 
 @dataclass
@@ -55,79 +63,69 @@ class CircuitBreaker:
     """
     Circuit breaker implementation with async and sync support
     
-    States:
-    - CLOSED: Normal operation
-    - OPEN: Failing fast (blocking all requests)
-    - HALF_OPEN: Testing recovery
+    Circuit Breaker pattern for fault tolerance.
     
-    Example (manual):
-        from aioresilience import CircuitBreaker
-        
-        breaker = CircuitBreaker(
-            name="redis",
-            failure_threshold=3,
-            recovery_timeout=30
-        )
-        
-        if breaker.can_execute():
-            try:
-                result = await do_something()
-                breaker.on_success()
-            except Exception:
-                breaker.on_failure()
-                raise
+    Prevents cascading failures by failing fast when error thresholds are exceeded.
+    Implements closed, open, and half-open states for automatic recovery.
     
-    Example (decorator):
-        from aioresilience import circuit_breaker
-        
-        @circuit_breaker("external_api", failure_threshold=5)
-        async def call_api():
-            return await httpx.get("https://api.example.com")
+    Example:
+        >>> # Basic usage (all defaults)
+        >>> circuit = CircuitBreaker(name="api-circuit")
+        >>> 
+        >>> # With custom configuration
+        >>> from aioresilience import CircuitConfig, ExceptionConfig
+        >>> config = CircuitConfig(failure_threshold=3, recovery_timeout=30.0)
+        >>> exceptions = ExceptionConfig(exception_type=MyCustomError)
+        >>> circuit = CircuitBreaker(name="api", config=config, exceptions=exceptions)
     """
     
     def __init__(
         self,
         name: str = "default",
-        failure_threshold: int = 5,
-        recovery_timeout: float = 60.0,
-        expected_exception: type = Exception,
-        success_threshold: int = 2,
-        timeout: Optional[float] = None,
-        half_open_max_calls: int = 1,
+        config: Optional[CircuitConfig] = None,
+        exceptions: Optional[ExceptionConfig] = None,
     ):
         """
         Initialize circuit breaker
         
         Args:
             name: Circuit breaker name
-            failure_threshold: Consecutive failures to open circuit
-            recovery_timeout: Seconds before trying to recover
-            expected_exception: Exception type to catch
-            success_threshold: Successes in half-open to close
-            timeout: Operation timeout in seconds
-            half_open_max_calls: Max concurrent calls in half-open
+            config: Optional CircuitConfig for pattern-specific settings
+            exceptions: Optional ExceptionConfig for exception handling
         """
         # Input validation
         if not name or not name.strip():
             raise ValueError("name must be a non-empty string")
-        if failure_threshold < 1:
-            raise ValueError("failure_threshold must be at least 1")
-        if recovery_timeout <= 0:
-            raise ValueError("recovery_timeout must be positive")
-        if success_threshold < 1:
-            raise ValueError("success_threshold must be at least 1")
-        if timeout is not None and timeout <= 0:
-            raise ValueError("timeout must be positive or None")
-        if half_open_max_calls < 1:
-            raise ValueError("half_open_max_calls must be at least 1")
         
         self.name = name.strip()
-        self.failure_threshold = failure_threshold
-        self.recovery_timeout = recovery_timeout
-        self.expected_exception = expected_exception
-        self.success_threshold = success_threshold
-        self.timeout = timeout
-        self.half_open_max_calls = half_open_max_calls
+        
+        # Initialize config with defaults
+        if config is None:
+            config = CircuitConfig()
+        
+        self.failure_threshold = config.failure_threshold
+        self.recovery_timeout = config.recovery_timeout
+        self.success_threshold = config.success_threshold
+        self.timeout = config.timeout
+        self.half_open_max_calls = config.half_open_max_calls
+        
+        # Initialize exception handling
+        if exceptions is None:
+            exceptions = ExceptionConfig()
+        
+        # Default to Exception if not specified
+        failure_exceptions = config.failure_exceptions or (Exception,)
+        self.failure_exceptions = failure_exceptions
+        
+        self._exception_handler = ExceptionHandler(
+            pattern_name=name,
+            pattern_type="circuit_breaker",
+            handled_exceptions=failure_exceptions,
+            exception_predicate=config.failure_predicate,
+            exception_type=exceptions.exception_type or CircuitBreakerOpenError,
+            exception_transformer=exceptions.exception_transformer,
+            on_exception=exceptions.on_exception,
+        )
         
         self.state = CircuitState.CLOSED
         self.metrics = CircuitMetrics()
@@ -160,11 +158,29 @@ class CircuitBreaker:
             pattern_type=PatternType.CIRCUIT_BREAKER,
             event_type=EventType.STATE_CHANGE,
             pattern_name=self.name,
-            old_state=old_state.value,
-            new_state=new_state.value,
+            old_state=old_state,  # Pass enum directly
+            new_state=new_state,
             failure_count=self.metrics.consecutive_failures,
             success_count=self.metrics.consecutive_successes,
         ))
+    
+    async def _raise_circuit_open_error(self):
+        """Raise exception when circuit is open using configured exception handler"""
+        reason = CircuitBreakerReason.CIRCUIT_OPEN
+        
+        # Determine specific reason
+        if self.state == CircuitState.HALF_OPEN:
+            reason = CircuitBreakerReason.HALF_OPEN_REJECTION
+        
+        # Use exception handler to create and raise exception
+        _, exc = await self._exception_handler.handle_exception(
+            reason=reason,
+            original_exc=None,
+            message=f"Circuit breaker '{self.name}' is {self.state.name}",
+            state=self.state.name.lower(),
+            failure_count=self.metrics.consecutive_failures,
+        )
+        raise exc
     
     async def can_execute(self) -> bool:
         """
@@ -185,9 +201,7 @@ class CircuitBreaker:
                     self.state = CircuitState.HALF_OPEN
                     self.metrics.last_state_change = time.time()
                     self.half_open_calls = 0  # Reset counter
-                    # Conditional logging: only log if enabled
-                    if logger.isEnabledFor(20):  # INFO level
-                        logger.info(f"Circuit breaker '{self.name}': OPEN → HALF_OPEN")
+                    logger.info(f"Circuit breaker '{self.name}': OPEN → HALF_OPEN")
                     await self._emit_state_change(old_state, self.state)
                     return True
                 return False
@@ -196,25 +210,18 @@ class CircuitBreaker:
     
     async def on_success(self):
         """Handle successful execution"""
+        # Fast path: check if state transition is needed (lock-free check)
+        current_state = self.state
+        needs_state_check = current_state == CircuitState.HALF_OPEN
+        
         async with self._lock:
             self.metrics.total_requests += 1
             self.metrics.successful_requests += 1
             self.metrics.consecutive_successes += 1
             self.metrics.consecutive_failures = 0
             
-            # Emit success event (lazy)
-            if self._check_has_listeners():
-                await self.events.emit(CircuitBreakerEvent(
-                    pattern_type=PatternType.CIRCUIT_BREAKER,
-                    event_type=EventType.CALL_SUCCESS,
-                    pattern_name=self.name,
-                    old_state=self.state.value,
-                    new_state=self.state.value,
-                    success_count=self.metrics.consecutive_successes,
-                ))
-            
             # Transition from HALF_OPEN to CLOSED
-            if self.state == CircuitState.HALF_OPEN:
+            if needs_state_check and self.state == CircuitState.HALF_OPEN:
                 if self.metrics.consecutive_successes >= self.success_threshold:
                     old_state = self.state
                     self.state = CircuitState.CLOSED
@@ -222,25 +229,30 @@ class CircuitBreaker:
                     self.half_open_calls = 0  # Reset counter
                     logger.info(f"Circuit breaker '{self.name}': HALF_OPEN → CLOSED")
                     await self._emit_state_change(old_state, self.state)
+        
+        # Emit success event outside of lock (lazy)
+        if self._check_has_listeners():
+            await self.events.emit(CircuitBreakerEvent(
+                pattern_type=PatternType.CIRCUIT_BREAKER,
+                event_type=EventType.CALL_SUCCESS,
+                pattern_name=self.name,
+                old_state=current_state,  # Use snapshot before lock
+                new_state=self.state,
+                success_count=self.metrics.consecutive_successes,
+            ))
     
     async def on_failure(self):
         """Handle failed execution"""
+        current_state = self.state
+        failure_count = 0
+        
         async with self._lock:
             self.metrics.total_requests += 1
             self.metrics.failed_requests += 1
             self.metrics.consecutive_failures += 1
             self.metrics.consecutive_successes = 0
             self.metrics.last_failure_time = time.time()
-            
-            # Emit failure event
-            await self.events.emit(CircuitBreakerEvent(
-                pattern_type=PatternType.CIRCUIT_BREAKER,
-                event_type=EventType.CALL_FAILURE,
-                pattern_name=self.name,
-                old_state=self.state.value,
-                new_state=self.state.value,
-                failure_count=self.metrics.consecutive_failures,
-            ))
+            failure_count = self.metrics.consecutive_failures
             
             # Transition to OPEN if threshold exceeded
             if self.state == CircuitState.CLOSED:
@@ -262,6 +274,17 @@ class CircuitBreaker:
                 self.half_open_calls = 0  # Reset counter
                 logger.warning(f"Circuit breaker '{self.name}': HALF_OPEN → OPEN")
                 await self._emit_state_change(old_state, self.state)
+        
+        # Emit failure event outside of lock (lazy)
+        if self._check_has_listeners():
+            await self.events.emit(CircuitBreakerEvent(
+                pattern_type=PatternType.CIRCUIT_BREAKER,
+                event_type=EventType.CALL_FAILURE,
+                pattern_name=self.name,
+                old_state=current_state,
+                new_state=self.state,
+                failure_count=failure_count,
+            ))
     
     async def call(self, func: Callable[..., T], *args, **kwargs) -> T:
         """
@@ -281,19 +304,29 @@ class CircuitBreaker:
         """
         # Check if circuit is open
         if not await self.can_execute():
-            raise CircuitBreakerOpenError(
-                f"Circuit breaker '{self.name}' is {self.state.value.upper()}"
-            )
+            await self._raise_circuit_open_error()
         
-        # Track half-open calls
-        async with self._lock:
-            if self.state == CircuitState.HALF_OPEN:
-                self.half_open_calls += 1
+        # Track half-open calls (only if needed)
+        if self.state == CircuitState.HALF_OPEN:
+            async with self._lock:
+                if self.state == CircuitState.HALF_OPEN:  # Double-check after lock
+                    self.half_open_calls += 1
+        
+        # Cache coroutine check to avoid repeated inspect calls (5-6μs each)
+        # Use id(func) as cache key for function identity
+        func_id = id(func)
+        if not hasattr(self, '_coro_cache'):
+            self._coro_cache = {}
+        
+        if func_id not in self._coro_cache:
+            self._coro_cache[func_id] = asyncio.iscoroutinefunction(func)
+        
+        is_coro = self._coro_cache[func_id]
         
         try:
             # Execute with timeout if specified
             if self.timeout:
-                if asyncio.iscoroutinefunction(func):
+                if is_coro:
                     result = await asyncio.wait_for(
                         func(*args, **kwargs),
                         timeout=self.timeout
@@ -304,7 +337,7 @@ class CircuitBreaker:
                         timeout=self.timeout
                     )
             else:
-                if asyncio.iscoroutinefunction(func):
+                if is_coro:
                     result = await func(*args, **kwargs)
                 else:
                     result = func(*args, **kwargs)
@@ -312,19 +345,50 @@ class CircuitBreaker:
             await self.on_success()
             return result
         
-        except asyncio.TimeoutError as e:
-            await self.on_failure()
-            logger.error(f"Circuit breaker '{self.name}': Timeout after {self.timeout}s")
-            raise
-        
-        except self.expected_exception as e:
-            await self.on_failure()
-            raise
-        
         except Exception as e:
-            # Catch unexpected exceptions and still record failure
-            await self.on_failure()
-            logger.error(f"Circuit breaker '{self.name}': Unexpected exception {type(e).__name__}: {e}")
+            # Check if this exception should count as a failure
+            if self._exception_handler.should_handle_exception(e):
+                # Record the state before calling on_failure
+                old_state = self.state
+                
+                await self.on_failure()
+                logger.error(f"Circuit breaker '{self.name}': Exception {type(e).__name__}: {e}")
+                
+                # Call exception handler callback if configured
+                if self._exception_handler.on_exception:
+                    try:
+                        # Determine the appropriate reason based on state transition
+                        if old_state != CircuitState.OPEN and self.state == CircuitState.OPEN:
+                            # Circuit just opened due to this failure
+                            reason = CircuitBreakerReason.THRESHOLD_EXCEEDED
+                        else:
+                            # Normal failure during operation
+                            reason = CircuitBreakerReason.CALL_FAILED
+                        
+                        context = ExceptionContext(
+                            pattern_name=self.name,
+                            pattern_type="circuit_breaker",
+                            reason=reason,
+                            original_exception=e,
+                            metadata={
+                                'state': self.state.name,
+                                'old_state': old_state.name,
+                                'failure_count': self.metrics.consecutive_failures,
+                            }
+                        )
+                        if asyncio.iscoroutinefunction(self._exception_handler.on_exception):
+                            await self._exception_handler.on_exception(context)
+                        else:
+                            self._exception_handler.on_exception(context)
+                    except Exception as callback_error:
+                        # Log callback errors but don't let them break exception handling
+                        logger.error(
+                            f"Circuit breaker '{self.name}': Error in on_exception callback: "
+                            f"{type(callback_error).__name__}: {callback_error}"
+                        )
+            else:
+                # Exception doesn't count as failure, but still log it
+                logger.debug(f"Circuit breaker '{self.name}': Non-failure exception {type(e).__name__}: {e}")
             raise
         
         finally:
@@ -332,48 +396,6 @@ class CircuitBreaker:
                 if self.state == CircuitState.HALF_OPEN:
                     self.half_open_calls = max(0, self.half_open_calls - 1)
     
-    def call_sync(self, func: Callable[..., T], *args, **kwargs) -> T:
-        """
-        Execute function through circuit breaker (sync)
-        
-        Note: This is provided for backward compatibility but is not thread-safe.
-        For production use, prefer the async call() method.
-        """
-        # Create event loop if needed for lock operations
-        import warnings
-        warnings.warn(
-            "call_sync is not thread-safe. Use async call() method for production.",
-            RuntimeWarning,
-            stacklevel=2
-        )
-        
-        # Simple sync check without lock (not thread-safe)
-        if self.state == CircuitState.CLOSED:
-            can_exec = True
-        elif self.state == CircuitState.OPEN:
-            if self.metrics.last_failure_time and time.time() - self.metrics.last_failure_time > self.recovery_timeout:
-                can_exec = True
-            else:
-                can_exec = False
-        else:  # HALF_OPEN
-            can_exec = self.half_open_calls < self.half_open_max_calls
-        
-        if not can_exec:
-            raise CircuitBreakerOpenError(
-                f"Circuit breaker '{self.name}' is {self.state.value.upper()}"
-            )
-        
-        try:
-            result = func(*args, **kwargs)
-            # Note: Not calling on_success in sync mode to avoid lock issues
-            self.metrics.total_requests += 1
-            self.metrics.successful_requests += 1
-            return result
-        except self.expected_exception as e:
-            # Note: Not calling on_failure in sync mode to avoid lock issues
-            self.metrics.total_requests += 1
-            self.metrics.failed_requests += 1
-            raise
     
     def get_state(self) -> CircuitState:
         """Get current state"""
@@ -383,7 +405,7 @@ class CircuitBreaker:
         """Get circuit breaker metrics"""
         return {
             "name": self.name,
-            "state": self.state.value,
+            "state": self.state.name.lower(),  # Use .name for display (e.g., "closed")
             "total_requests": self.metrics.total_requests,
             "successful_requests": self.metrics.successful_requests,
             "failed_requests": self.metrics.failed_requests,
@@ -411,14 +433,9 @@ class CircuitBreaker:
                 pattern_type=PatternType.CIRCUIT_BREAKER,
                 event_type=EventType.CIRCUIT_RESET,
                 pattern_name=self.name,
-                old_state=old_state.value,
-                new_state=self.state.value,
+                old_state=old_state,  # Pass enum directly
+                new_state=self.state,
             ))
-
-
-class CircuitBreakerOpenError(Exception):
-    """Raised when circuit breaker is open"""
-    pass
 
 
 # Decorator for circuit breaker
@@ -436,24 +453,31 @@ def circuit_breaker(
         async def call_external_api():
             return await httpx.get("https://api.example.com")
     """
-    cb = CircuitBreaker(name, failure_threshold, recovery_timeout, **kwargs)
+    # Build config from parameters for backward compatibility
+    config = CircuitConfig(
+        failure_threshold=failure_threshold,
+        recovery_timeout=recovery_timeout,
+        **{k: v for k, v in kwargs.items() if k in ['success_threshold', 'timeout', 'half_open_max_calls', 'failure_exceptions', 'failure_predicate']}
+    )
+    # Extract exception config parameters if provided
+    exception_kwargs = {k: v for k, v in kwargs.items() if k in ['exception_type', 'exception_transformer', 'on_exception', 'handled_exceptions', 'exception_predicate']}
+    exceptions = ExceptionConfig(**exception_kwargs) if exception_kwargs else None
+    
+    cb = CircuitBreaker(name=name, config=config, exceptions=exceptions)
     
     def decorator(func: Callable) -> Callable:
+        if not asyncio.iscoroutinefunction(func):
+            raise TypeError(
+                f"Circuit breaker decorator can only be applied to async functions. "
+                f"'{func.__name__}' is not async. Use 'async def' or call circuit_breaker.call() manually."
+            )
+        
         @wraps(func)
         async def async_wrapper(*args, **kwargs) -> Any:
             return await cb.call(func, *args, **kwargs)
         
-        @wraps(func)
-        def sync_wrapper(*args, **kwargs) -> Any:
-            return cb.call_sync(func, *args, **kwargs)
-        
-        if asyncio.iscoroutinefunction(func):
-            wrapper = async_wrapper
-        else:
-            wrapper = sync_wrapper
-        
-        wrapper.circuit_breaker = cb  # Expose circuit breaker instance
-        return wrapper
+        async_wrapper.circuit_breaker = cb  # Expose circuit breaker instance
+        return async_wrapper
     
     return decorator
 
@@ -471,7 +495,14 @@ class CircuitBreakerManager:
     ) -> CircuitBreaker:
         """Get existing or create new circuit breaker"""
         if name not in self.breakers:
-            self.breakers[name] = CircuitBreaker(name, **kwargs)
+            # Build config from kwargs for backward compatibility
+            config_params = {k: v for k, v in kwargs.items() if k in ['failure_threshold', 'recovery_timeout', 'success_threshold', 'timeout', 'half_open_max_calls', 'failure_exceptions', 'failure_predicate']}
+            exception_params = {k: v for k, v in kwargs.items() if k in ['exception_type', 'exception_transformer', 'on_exception', 'handled_exceptions', 'exception_predicate']}
+            
+            config = CircuitConfig(**config_params) if config_params else None
+            exceptions = ExceptionConfig(**exception_params) if exception_params else None
+            
+            self.breakers[name] = CircuitBreaker(name=name, config=config, exceptions=exceptions)
         return self.breakers[name]
     
     def get_all_metrics(self) -> dict:

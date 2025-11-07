@@ -12,7 +12,11 @@ from aioresilience import (
     Bulkhead,
     BackpressureManager,
     AdaptiveConcurrencyLimiter,
+    CircuitConfig,
+    BulkheadConfig,
+    BackpressureConfig,
 )
+from aioresilience.config import AdaptiveConcurrencyConfig
 from aioresilience.integrations.aiohttp import (
     circuit_breaker_handler,
     rate_limit_handler,
@@ -30,7 +34,7 @@ class TestAiohttpCircuitBreakerExtended:
     @pytest.mark.asyncio
     async def test_circuit_with_custom_status_code(self):
         """Test circuit breaker with custom status code"""
-        circuit = CircuitBreaker("test", failure_threshold=1)
+        circuit = CircuitBreaker("test", config=CircuitConfig(failure_threshold=1))
         
         @circuit_breaker_handler(circuit, status_code=500)
         async def handler(request):
@@ -50,7 +54,7 @@ class TestAiohttpRateLimitExtended:
     @pytest.mark.asyncio
     async def test_rate_limit_with_key_func(self):
         """Test rate limiting with custom key function"""
-        limiter = RateLimiter(name="test")
+        limiter = RateLimiter()
         
         def custom_key(request):
             return request.headers.get("X-API-Key", "default")
@@ -69,7 +73,7 @@ class TestAiohttpRateLimitExtended:
     @pytest.mark.asyncio
     async def test_rate_limit_custom_error(self):
         """Test custom error message and status"""
-        limiter = RateLimiter(name="test")
+        limiter = RateLimiter()
         
         @rate_limit_handler(
             limiter,
@@ -94,7 +98,7 @@ class TestAiohttpBackpressureExtended:
     @pytest.mark.asyncio
     async def test_backpressure_with_custom_timeout(self):
         """Test backpressure with custom timeout"""
-        backpressure = BackpressureManager(max_pending=10)
+        backpressure = BackpressureManager(config=BackpressureConfig(max_pending=10, high_water_mark=8, low_water_mark=3))
         
         @backpressure_handler(backpressure, timeout=1.0)
         async def handler(request):
@@ -114,7 +118,8 @@ class TestAiohttpAdaptiveConcurrencyExtended:
     @pytest.mark.asyncio
     async def test_adaptive_concurrency_basic(self):
         """Test adaptive concurrency allows requests"""
-        limiter = AdaptiveConcurrencyLimiter(initial_limit=10)
+        config = AdaptiveConcurrencyConfig(initial_limit=10)
+        limiter = AdaptiveConcurrencyLimiter("test", config)
         
         @adaptive_concurrency_handler(limiter)
         async def handler(request):
@@ -134,7 +139,7 @@ class TestAiohttpBulkheadExtended:
     @pytest.mark.asyncio
     async def test_bulkhead_with_custom_error(self):
         """Test bulkhead with custom error message"""
-        bulkhead = Bulkhead(max_concurrent=5)
+        bulkhead = Bulkhead(config=BulkheadConfig(max_concurrent=5))
         
         @bulkhead_handler(bulkhead, error_message="Custom capacity error")
         async def handler(request):

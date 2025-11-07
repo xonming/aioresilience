@@ -6,6 +6,7 @@ import asyncio
 import pytest
 from aioresilience import (
     Bulkhead,
+    BulkheadConfig,
     BulkheadFullError,
     bulkhead,
     get_bulkhead,
@@ -19,7 +20,7 @@ class TestBulkhead:
     @pytest.mark.asyncio
     async def test_successful_execution(self):
         """Test successful execution within bulkhead"""
-        bh = Bulkhead(max_concurrent=5, name="test")
+        bh = Bulkhead(name="test", config=BulkheadConfig(max_concurrent=5))
         
         async def func():
             return "success"
@@ -34,7 +35,7 @@ class TestBulkhead:
     @pytest.mark.asyncio
     async def test_concurrent_limit(self):
         """Test that concurrent execution is limited"""
-        bh = Bulkhead(max_concurrent=2, max_waiting=0)
+        bh = Bulkhead(config=BulkheadConfig(max_concurrent=2, max_waiting=0))
         
         active_count = 0
         max_active = 0
@@ -63,7 +64,7 @@ class TestBulkhead:
     @pytest.mark.asyncio
     async def test_waiting_queue(self):
         """Test waiting queue functionality"""
-        bh = Bulkhead(max_concurrent=2, max_waiting=3, timeout=1.0)
+        bh = Bulkhead(config=BulkheadConfig(max_concurrent=2, max_waiting=3, timeout=1.0))
         
         results = []
         
@@ -86,7 +87,7 @@ class TestBulkhead:
     @pytest.mark.asyncio
     async def test_queue_overflow(self):
         """Test that queue overflow rejects requests"""
-        bh = Bulkhead(max_concurrent=1, max_waiting=1)
+        bh = Bulkhead(config=BulkheadConfig(max_concurrent=1, max_waiting=1))
         
         started = asyncio.Event()
         
@@ -122,7 +123,7 @@ class TestBulkhead:
     @pytest.mark.asyncio
     async def test_timeout_waiting(self):
         """Test timeout while waiting for a slot"""
-        bh = Bulkhead(max_concurrent=1, max_waiting=10, timeout=0.1)
+        bh = Bulkhead(config=BulkheadConfig(max_concurrent=1, max_waiting=10, timeout=0.1))
         
         async def long_task():
             await asyncio.sleep(1.0)
@@ -146,7 +147,7 @@ class TestBulkhead:
     @pytest.mark.asyncio
     async def test_context_manager(self):
         """Test bulkhead as async context manager"""
-        bh = Bulkhead(max_concurrent=2)
+        bh = Bulkhead(config=BulkheadConfig(max_concurrent=2))
         
         async with bh:
             # Do work inside bulkhead
@@ -159,7 +160,7 @@ class TestBulkhead:
     @pytest.mark.asyncio
     async def test_context_manager_rejection(self):
         """Test context manager rejection when full"""
-        bh = Bulkhead(max_concurrent=1, max_waiting=0)
+        bh = Bulkhead(config=BulkheadConfig(max_concurrent=1, max_waiting=0))
         
         # Hold the slot
         async def hold_slot():
@@ -184,7 +185,7 @@ class TestBulkhead:
     @pytest.mark.asyncio
     async def test_metrics_peak_active(self):
         """Test that peak active count is tracked"""
-        bh = Bulkhead(max_concurrent=5)
+        bh = Bulkhead(config=BulkheadConfig(max_concurrent=5))
         
         async def task():
             await asyncio.sleep(0.1)
@@ -201,7 +202,7 @@ class TestBulkhead:
     @pytest.mark.asyncio
     async def test_sync_function(self):
         """Test bulkhead with sync functions"""
-        bh = Bulkhead(max_concurrent=2)
+        bh = Bulkhead(config=BulkheadConfig(max_concurrent=2))
         
         def sync_func(x):
             return x * 2
@@ -212,7 +213,7 @@ class TestBulkhead:
     @pytest.mark.asyncio
     async def test_reset_metrics(self):
         """Test metrics reset"""
-        bh = Bulkhead(max_concurrent=5)
+        bh = Bulkhead(config=BulkheadConfig(max_concurrent=5))
         
         async def func():
             return "ok"
@@ -231,17 +232,17 @@ class TestBulkhead:
     def test_invalid_max_concurrent(self):
         """Test validation of max_concurrent"""
         with pytest.raises(ValueError, match="max_concurrent must be at least 1"):
-            Bulkhead(max_concurrent=0)
+            BulkheadConfig(max_concurrent=0)
     
     def test_invalid_max_waiting(self):
         """Test validation of max_waiting"""
         with pytest.raises(ValueError, match="max_waiting must be non-negative"):
-            Bulkhead(max_concurrent=1, max_waiting=-1)
+            BulkheadConfig(max_concurrent=1, max_waiting=-1)
     
     def test_invalid_timeout(self):
         """Test validation of timeout"""
         with pytest.raises(ValueError, match="timeout must be positive or None"):
-            Bulkhead(max_concurrent=1, timeout=0)
+            BulkheadConfig(max_concurrent=1, timeout=0)
 
 
 class TestBulkheadDecorator:
@@ -335,7 +336,7 @@ class TestBulkheadConcurrency:
     @pytest.mark.asyncio
     async def test_high_concurrency(self):
         """Test bulkhead under high concurrent load"""
-        bh = Bulkhead(max_concurrent=10, max_waiting=50, timeout=2.0)
+        bh = Bulkhead(config=BulkheadConfig(max_concurrent=10, max_waiting=50, timeout=2.0))
         
         results = []
         
@@ -358,7 +359,7 @@ class TestBulkheadConcurrency:
     @pytest.mark.asyncio
     async def test_burst_traffic(self):
         """Test bulkhead with burst traffic pattern"""
-        bh = Bulkhead(max_concurrent=5, max_waiting=10)
+        bh = Bulkhead(config=BulkheadConfig(max_concurrent=5, max_waiting=10))
         
         async def task():
             await asyncio.sleep(0.05)
@@ -384,7 +385,7 @@ class TestBulkheadConcurrency:
     @pytest.mark.asyncio
     async def test_exception_in_task(self):
         """Test that exceptions don't break bulkhead"""
-        bh = Bulkhead(max_concurrent=3, max_waiting=5)
+        bh = Bulkhead(config=BulkheadConfig(max_concurrent=3, max_waiting=5))
         
         async def failing_task():
             await asyncio.sleep(0.01)

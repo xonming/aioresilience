@@ -213,7 +213,10 @@ class TestSystemLoadShedder:
         mock_psutil.cpu_percent.return_value = 50.0
         mock_psutil.virtual_memory.return_value.percent = 60.0
         
-        shedder = SystemLoadShedder(max_requests=0)
+        shedder = SystemLoadShedder(max_requests=1)
+        
+        # Acquire one request to fill capacity
+        await shedder.acquire()
         
         should_shed, reason = shedder.should_shed_load()
         
@@ -241,7 +244,7 @@ class TestSystemLoadShedder:
             await shedder.acquire()
         
         metrics = shedder._get_system_metrics()
-        assert metrics.load_level.value == "normal"
+        assert metrics.load_level.name.lower() == "normal"
         
         # Clean up
         for i in range(20):
@@ -261,7 +264,7 @@ class TestSystemLoadShedder:
             await shedder.acquire()
         
         metrics = shedder._get_system_metrics()
-        assert metrics.load_level.value == "elevated"
+        assert metrics.load_level.name.lower() == "elevated"
     
     @pytest.mark.asyncio
     async def test_concurrent_acquire_release(self, mock_psutil):

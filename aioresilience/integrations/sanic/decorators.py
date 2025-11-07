@@ -281,11 +281,13 @@ def adaptive_concurrency_route(
     Example:
         from sanic import Sanic, json
         from aioresilience import AdaptiveConcurrencyLimiter
+        from aioresilience.config import AdaptiveConcurrencyConfig
         from aioresilience.integrations.sanic import adaptive_concurrency_route
-        
+
         app = Sanic("MyApp")
-        limiter = AdaptiveConcurrencyLimiter(initial_limit=100)
-        
+        config = AdaptiveConcurrencyConfig(initial_limit=100)
+        limiter = AdaptiveConcurrencyLimiter("api-limiter", config)
+
         @app.get("/api/data")
         @adaptive_concurrency_route(limiter)
         async def get_data(request):

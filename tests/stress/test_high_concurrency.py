@@ -11,7 +11,12 @@ from aioresilience import (
     Bulkhead,
     LoadShedder,
     AdaptiveConcurrencyLimiter,
+    CircuitConfig,
+    BulkheadConfig,
+    RateLimitConfig,
+    LoadSheddingConfig,
 )
+from aioresilience.config import AdaptiveConcurrencyConfig
 
 
 class TestHighConcurrency:
@@ -21,7 +26,7 @@ class TestHighConcurrency:
     @pytest.mark.timeout(30)
     async def test_circuit_breaker_1000_concurrent_requests(self):
         """Test circuit breaker with 1000+ concurrent requests"""
-        circuit = CircuitBreaker(name="stress_test", failure_threshold=100)
+        circuit = CircuitBreaker(name="stress_test", config=CircuitConfig(failure_threshold=100))
         
         success_count = 0
         failure_count = 0
@@ -53,7 +58,7 @@ class TestHighConcurrency:
     @pytest.mark.timeout(30)
     async def test_bulkhead_concurrent_limit_enforcement(self):
         """Test bulkhead enforces limits under heavy load"""
-        bulkhead = Bulkhead(max_concurrent=50, max_waiting=100)
+        bulkhead = Bulkhead(config=BulkheadConfig(max_concurrent=50, max_waiting=100))
         
         active_count = 0
         max_active = 0
@@ -85,7 +90,7 @@ class TestHighConcurrency:
     @pytest.mark.timeout(30)
     async def test_rate_limiter_under_burst(self):
         """Test rate limiter handles burst traffic"""
-        rate_limiter = RateLimiter(name="stress_burst")
+        rate_limiter = RateLimiter()
         
         allowed = 0
         rejected = 0
@@ -109,7 +114,7 @@ class TestHighConcurrency:
     @pytest.mark.timeout(30)
     async def test_load_shedder_concurrent_acquire_release(self):
         """Test load shedder with rapid acquire/release"""
-        shedder = LoadShedder(max_requests=100)
+        shedder = LoadShedder(config=LoadSheddingConfig(max_requests=100))
         
         max_concurrent = 0
         successful_acquires = 0
@@ -133,11 +138,12 @@ class TestHighConcurrency:
     @pytest.mark.timeout(30)
     async def test_adaptive_concurrency_adjusts_under_load(self):
         """Test adaptive concurrency limiter adjusts to load"""
-        limiter = AdaptiveConcurrencyLimiter(
+        config = AdaptiveConcurrencyConfig(
             initial_limit=20,
             min_limit=5,
             max_limit=100
         )
+        limiter = AdaptiveConcurrencyLimiter("test", config)
         
         latencies = []
         
@@ -173,7 +179,7 @@ class TestConcurrencyStress:
     @pytest.mark.timeout(30)
     async def test_circuit_breaker_metrics_accuracy(self):
         """Test circuit breaker metrics remain accurate under load"""
-        circuit = CircuitBreaker(name="metrics_test", failure_threshold=1000)
+        circuit = CircuitBreaker(name="metrics_test", config=CircuitConfig(failure_threshold=1000))
         
         total_calls = 0
         expected_failures = 0
@@ -205,7 +211,7 @@ class TestConcurrencyStress:
     @pytest.mark.timeout(30)
     async def test_bulkhead_no_leaks_under_exceptions(self):
         """Test bulkhead properly releases on exceptions"""
-        bulkhead = Bulkhead(max_concurrent=10)
+        bulkhead = Bulkhead(config=BulkheadConfig(max_concurrent=10))
         
         async def failing_operation():
             await asyncio.sleep(0.001)
@@ -227,7 +233,7 @@ class TestConcurrencyStress:
     @pytest.mark.timeout(30)
     async def test_rate_limiter_per_key_isolation(self):
         """Test rate limiters for different keys don't interfere"""
-        rate_limiter = RateLimiter(name="isolation_test")
+        rate_limiter = RateLimiter()
         
         user1_allowed = 0
         user2_allowed = 0
@@ -256,9 +262,9 @@ class TestConcurrencyStress:
     @pytest.mark.timeout(30)
     async def test_mixed_patterns_concurrent_stability(self):
         """Test multiple patterns together remain stable"""
-        circuit = CircuitBreaker(name="mixed", failure_threshold=50)
-        bulkhead = Bulkhead(max_concurrent=20)
-        rate_limiter = RateLimiter(name="mixed")
+        circuit = CircuitBreaker(name="mixed", config=CircuitConfig(failure_threshold=50))
+        bulkhead = Bulkhead(config=BulkheadConfig(max_concurrent=20))
+        rate_limiter = RateLimiter()
         
         operations_completed = 0
         
@@ -293,7 +299,7 @@ class TestMemoryAndPerformance:
     @pytest.mark.timeout(30)
     async def test_circuit_breaker_overhead(self):
         """Measure circuit breaker overhead"""
-        circuit = CircuitBreaker(name="perf", failure_threshold=1000)
+        circuit = CircuitBreaker(name="perf", config=CircuitConfig(failure_threshold=1000))
         
         async def noop():
             return "done"
@@ -317,7 +323,7 @@ class TestMemoryAndPerformance:
     @pytest.mark.timeout(30)
     async def test_bulkhead_overhead(self):
         """Measure bulkhead overhead"""
-        bulkhead = Bulkhead(max_concurrent=100, max_waiting=1000)
+        bulkhead = Bulkhead(config=BulkheadConfig(max_concurrent=100, max_waiting=1000))
         
         async def noop():
             return "done"

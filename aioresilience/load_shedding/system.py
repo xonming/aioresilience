@@ -105,7 +105,8 @@ class SystemLoadShedder(BasicLoadShedder):
                 "Install it with: pip install psutil"
             )
         
-        super().__init__(max_requests, max_queue_depth)
+        from ..config import LoadSheddingConfig
+        super().__init__(config=LoadSheddingConfig(max_requests=max_requests, max_queue_depth=max_queue_depth))
         
         self._psutil = psutil
         self.cpu_threshold = cpu_threshold

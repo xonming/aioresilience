@@ -4,7 +4,7 @@ Tests for FastAPI Integration
 import pytest
 import asyncio
 from unittest.mock import Mock, AsyncMock, MagicMock
-from aioresilience import LoadShedder, RateLimiter
+from aioresilience import LoadShedder, RateLimiter, LoadSheddingConfig
 
 # Skip all tests if FastAPI is not installed
 fastapi = pytest.importorskip("fastapi", reason="FastAPI not installed")
@@ -26,7 +26,7 @@ class TestLoadSheddingMiddleware:
     def test_middleware_allows_requests_under_limit(self):
         """Test middleware allows requests when under limit"""
         app = FastAPI()
-        load_shedder = LoadShedder(max_requests=10)
+        load_shedder = LoadShedder(config=LoadSheddingConfig(max_requests=10))
         
         app.add_middleware(LoadSheddingMiddleware, load_shedder=load_shedder)
         
@@ -43,7 +43,7 @@ class TestLoadSheddingMiddleware:
     def test_middleware_sheds_load_when_overloaded(self):
         """Test middleware sheds load when overloaded"""
         app = FastAPI()
-        load_shedder = LoadShedder(max_requests=1)
+        load_shedder = LoadShedder(config=LoadSheddingConfig(max_requests=1))
         
         app.add_middleware(LoadSheddingMiddleware, load_shedder=load_shedder)
         
@@ -68,7 +68,7 @@ class TestLoadSheddingMiddleware:
     def test_middleware_skips_health_endpoints(self):
         """Test middleware skips health check endpoints"""
         app = FastAPI()
-        load_shedder = LoadShedder(max_requests=0)  # Would reject all
+        load_shedder = LoadShedder(config=LoadSheddingConfig(max_requests=1))  # Very low capacity
         
         app.add_middleware(LoadSheddingMiddleware, load_shedder=load_shedder)
         
@@ -98,7 +98,7 @@ class TestLoadSheddingMiddleware:
     def test_middleware_respects_priority_header(self):
         """Test middleware respects X-Priority header"""
         app = FastAPI()
-        load_shedder = LoadShedder(max_requests=10)
+        load_shedder = LoadShedder(config=LoadSheddingConfig(max_requests=10))
         
         app.add_middleware(LoadSheddingMiddleware, load_shedder=load_shedder)
         
@@ -114,7 +114,7 @@ class TestLoadSheddingMiddleware:
     def test_middleware_releases_on_success(self):
         """Test middleware releases slot after successful request"""
         app = FastAPI()
-        load_shedder = LoadShedder(max_requests=10)
+        load_shedder = LoadShedder(config=LoadSheddingConfig(max_requests=10))
         
         app.add_middleware(LoadSheddingMiddleware, load_shedder=load_shedder)
         
@@ -131,7 +131,7 @@ class TestLoadSheddingMiddleware:
     def test_middleware_releases_on_error(self):
         """Test middleware releases slot even on error"""
         app = FastAPI()
-        load_shedder = LoadShedder(max_requests=10)
+        load_shedder = LoadShedder(config=LoadSheddingConfig(max_requests=10))
         
         app.add_middleware(LoadSheddingMiddleware, load_shedder=load_shedder)
         
@@ -239,7 +239,7 @@ class TestRateLimitDependency:
         from httpx import AsyncClient, ASGITransport
         
         app = FastAPI()
-        rate_limiter = RateLimiter(name="test_async_1")
+        rate_limiter = RateLimiter()
         
         @app.get("/api/data")
         async def get_data(
@@ -261,7 +261,7 @@ class TestRateLimitDependency:
         from httpx import AsyncClient, ASGITransport
         
         app = FastAPI()
-        rate_limiter = RateLimiter(name="test_async_2")
+        rate_limiter = RateLimiter()
         
         @app.get("/api/data")
         async def get_data(
@@ -288,7 +288,7 @@ class TestRateLimitDependency:
         from httpx import AsyncClient, ASGITransport
         
         app = FastAPI()
-        rate_limiter = RateLimiter(name="test_async_3")
+        rate_limiter = RateLimiter()
         
         @app.get("/api/data")
         async def get_data(
@@ -313,7 +313,7 @@ class TestRateLimitDependency:
         from httpx import AsyncClient, ASGITransport
         
         app = FastAPI()
-        rate_limiter = RateLimiter(name="test_async_4")
+        rate_limiter = RateLimiter()
         
         @app.get("/api/data")
         async def get_data(
@@ -348,8 +348,8 @@ class TestFastAPIIntegration:
         from httpx import AsyncClient, ASGITransport
         
         app = FastAPI()
-        load_shedder = LoadShedder(max_requests=10)
-        rate_limiter = RateLimiter(name="api_async_5")
+        load_shedder = LoadShedder(config=LoadSheddingConfig(max_requests=10))
+        rate_limiter = RateLimiter()
         
         app.add_middleware(LoadSheddingMiddleware, load_shedder=load_shedder)
         
@@ -372,7 +372,7 @@ class TestFastAPIIntegration:
         from httpx import AsyncClient, ASGITransport
         
         app = FastAPI()
-        rate_limiter = RateLimiter(name="api_async_6")
+        rate_limiter = RateLimiter()
         
         @app.get("/api/free")
         async def free_endpoint(
@@ -398,7 +398,7 @@ class TestFastAPIIntegration:
     def test_error_handling_in_middleware(self):
         """Test middleware handles errors gracefully"""
         app = FastAPI()
-        load_shedder = LoadShedder(max_requests=10)
+        load_shedder = LoadShedder(config=LoadSheddingConfig(max_requests=10))
         
         app.add_middleware(LoadSheddingMiddleware, load_shedder=load_shedder)
         
@@ -417,7 +417,7 @@ class TestFastAPIIntegration:
     def test_concurrent_requests_with_middleware(self):
         """Test middleware handles concurrent requests correctly"""
         app = FastAPI()
-        load_shedder = LoadShedder(max_requests=5)
+        load_shedder = LoadShedder(config=LoadSheddingConfig(max_requests=5))
         
         app.add_middleware(LoadSheddingMiddleware, load_shedder=load_shedder)
         
@@ -441,7 +441,7 @@ class TestMiddlewareEdgeCases:
     def test_middleware_with_streaming_response(self):
         """Test middleware works with streaming responses"""
         app = FastAPI()
-        load_shedder = LoadShedder(max_requests=10)
+        load_shedder = LoadShedder(config=LoadSheddingConfig(max_requests=10))
         
         app.add_middleware(LoadSheddingMiddleware, load_shedder=load_shedder)
         
@@ -467,7 +467,7 @@ class TestMiddlewareEdgeCases:
         pytest.importorskip("multipart")  # Skip if python-multipart not installed
         
         app = FastAPI()
-        load_shedder = LoadShedder(max_requests=10)
+        load_shedder = LoadShedder(config=LoadSheddingConfig(max_requests=10))
         
         app.add_middleware(LoadSheddingMiddleware, load_shedder=load_shedder)
         
@@ -487,7 +487,7 @@ class TestMiddlewareEdgeCases:
     def test_middleware_preserves_response_headers(self):
         """Test middleware preserves custom response headers"""
         app = FastAPI()
-        load_shedder = LoadShedder(max_requests=10)
+        load_shedder = LoadShedder(config=LoadSheddingConfig(max_requests=10))
         
         app.add_middleware(LoadSheddingMiddleware, load_shedder=load_shedder)
         

@@ -31,7 +31,7 @@ class TestEventEmitter:
         handler_called = False
         received_event = None
         
-        @emitter.on("state_change")
+        @emitter.on(EventType.STATE_CHANGE.value)
         async def handler(event):
             nonlocal handler_called, received_event
             handler_called = True
@@ -60,7 +60,7 @@ class TestEventEmitter:
             nonlocal handler_called
             handler_called = True
         
-        emitter.add_handler("state_change", handler)
+        emitter.add_handler(EventType.STATE_CHANGE.value, handler)
         assert emitter.handler_count == 1
         
         event = ResilienceEvent(
@@ -106,10 +106,10 @@ class TestEventEmitter:
             nonlocal handler_called
             handler_called = True
         
-        emitter.add_handler("state_change", handler)
+        emitter.add_handler(EventType.STATE_CHANGE.value, handler)
         assert emitter.handler_count == 1
         
-        emitter.remove_handler("state_change", handler)
+        emitter.remove_handler(EventType.STATE_CHANGE.value, handler)
         assert emitter.handler_count == 0
         
         event = ResilienceEvent(
@@ -127,12 +127,12 @@ class TestEventEmitter:
         emitter = EventEmitter("test")
         call_count = 0
         
-        @emitter.on("state_change")
+        @emitter.on(EventType.STATE_CHANGE.value)
         async def handler1(event):
             nonlocal call_count
             call_count += 1
         
-        @emitter.on("state_change")
+        @emitter.on(EventType.STATE_CHANGE.value)
         async def handler2(event):
             nonlocal call_count
             call_count += 1
@@ -152,11 +152,11 @@ class TestEventEmitter:
         emitter = EventEmitter("test")
         handler2_called = False
         
-        @emitter.on("state_change")
+        @emitter.on(EventType.STATE_CHANGE.value)
         async def failing_handler(event):
             raise ValueError("Handler error")
         
-        @emitter.on("state_change")
+        @emitter.on(EventType.STATE_CHANGE.value)
         async def working_handler(event):
             nonlocal handler2_called
             handler2_called = True
@@ -203,7 +203,7 @@ class TestGlobalEventBus:
         handler_called = False
         received_event = None
         
-        @global_bus.on("state_change")
+        @global_bus.on(EventType.STATE_CHANGE.value)
         async def handler(event):
             nonlocal handler_called, received_event
             handler_called = True
@@ -265,12 +265,12 @@ class TestGlobalEventBus:
         
         emitter = EventEmitter("test")
         
-        @emitter.on("state_change")
+        @emitter.on(EventType.STATE_CHANGE.value)
         async def local_handler(event):
             nonlocal local_called
             local_called = True
         
-        @global_bus.on("state_change")
+        @global_bus.on(EventType.STATE_CHANGE.value)
         async def global_handler(event):
             nonlocal global_called
             global_called = True
@@ -291,15 +291,15 @@ class TestEventTypes:
     
     def test_pattern_type_enum(self):
         """Test PatternType enum values"""
-        assert PatternType.CIRCUIT_BREAKER.value == "circuit_breaker"
-        assert PatternType.RATE_LIMITER.value == "rate_limiter"
-        assert PatternType.BULKHEAD.value == "bulkhead"
+        assert PatternType.CIRCUIT_BREAKER.value == 0
+        assert PatternType.RATE_LIMITER.value == 4
+        assert PatternType.BULKHEAD.value == 1
     
     def test_event_type_enum(self):
         """Test EventType enum values"""
-        assert EventType.STATE_CHANGE.value == "state_change"
-        assert EventType.CALL_SUCCESS.value == "call_success"
-        assert EventType.CALL_FAILURE.value == "call_failure"
+        assert EventType.STATE_CHANGE.value == 1
+        assert EventType.CALL_SUCCESS.value == 2
+        assert EventType.CALL_FAILURE.value == 3
     
     def test_resilience_event_to_dict(self):
         """Test ResilienceEvent to_dict method"""

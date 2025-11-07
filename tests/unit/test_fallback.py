@@ -6,6 +6,8 @@ import asyncio
 import pytest
 from aioresilience import (
     FallbackHandler,
+    FallbackConfig,
+    ExceptionConfig,
     ChainedFallback,
     fallback,
     chained_fallback,
@@ -19,7 +21,7 @@ class TestFallbackHandler:
     @pytest.mark.asyncio
     async def test_successful_execution_no_fallback(self):
         """Test successful execution without needing fallback"""
-        handler = FallbackHandler(fallback="fallback_value")
+        handler = FallbackHandler(config=FallbackConfig(fallback="fallback_value"))
         
         async def successful_func():
             return "success"
@@ -35,8 +37,10 @@ class TestFallbackHandler:
     async def test_fallback_on_exception(self):
         """Test fallback is used on exception"""
         handler = FallbackHandler(
-            fallback="fallback_value",
-            fallback_on_exceptions=(ValueError,)
+            config=FallbackConfig(
+                fallback="fallback_value",
+                fallback_on_exceptions=(ValueError,)
+            )
         )
         
         async def failing_func():
@@ -55,7 +59,7 @@ class TestFallbackHandler:
         def get_fallback():
             return "callable_fallback"
         
-        handler = FallbackHandler(fallback=get_fallback)
+        handler = FallbackHandler(config=FallbackConfig(fallback=get_fallback))
         
         async def failing_func():
             raise Exception("error")
@@ -73,7 +77,7 @@ class TestFallbackHandler:
             await asyncio.sleep(0.01)
             return "async_fallback"
         
-        handler = FallbackHandler(fallback=get_fallback_async)
+        handler = FallbackHandler(config=FallbackConfig(fallback=get_fallback_async))
         
         async def failing_func():
             raise Exception("error")
@@ -90,7 +94,7 @@ class TestFallbackHandler:
         def get_fallback(x, y):
             return f"fallback_{x}_{y}"
         
-        handler = FallbackHandler(fallback=get_fallback)
+        handler = FallbackHandler(config=FallbackConfig(fallback=get_fallback))
         
         async def failing_func(x, y):
             raise Exception("error")
@@ -106,14 +110,18 @@ class TestFallbackHandler:
             raise RuntimeError("fallback_error")
         
         handler = FallbackHandler(
-            fallback=failing_fallback,
-            reraise_on_fallback_failure=True
+            config=FallbackConfig(
+                fallback=failing_fallback,
+                reraise_on_fallback_failure=True
+            )
         )
         
         async def failing_func():
             raise ValueError("primary_error")
         
-        with pytest.raises(RuntimeError, match="fallback_error"):
+        from aioresilience import FallbackFailedError
+        
+        with pytest.raises(FallbackFailedError):
             await handler.execute(failing_func)
         
         metrics = handler.get_metrics()
@@ -127,8 +135,10 @@ class TestFallbackHandler:
             raise RuntimeError("fallback_error")
         
         handler = FallbackHandler(
-            fallback=failing_fallback,
-            reraise_on_fallback_failure=False
+            config=FallbackConfig(
+                fallback=failing_fallback,
+                reraise_on_fallback_failure=False
+            )
         )
         
         async def failing_func():
@@ -144,8 +154,10 @@ class TestFallbackHandler:
     async def test_non_fallback_exception(self):
         """Test that non-fallback exceptions propagate"""
         handler = FallbackHandler(
-            fallback="fallback_value",
-            fallback_on_exceptions=(ValueError,)
+            config=FallbackConfig(
+                fallback="fallback_value",
+                fallback_on_exceptions=(ValueError,)
+            )
         )
         
         async def func():
@@ -161,7 +173,7 @@ class TestFallbackHandler:
     @pytest.mark.asyncio
     async def test_sync_function(self):
         """Test fallback with sync functions"""
-        handler = FallbackHandler(fallback="fallback")
+        handler = FallbackHandler(config=FallbackConfig(fallback="fallback"))
         
         def failing_sync():
             raise Exception("error")
@@ -173,7 +185,7 @@ class TestFallbackHandler:
     @pytest.mark.asyncio
     async def test_reset_metrics(self):
         """Test metrics reset"""
-        handler = FallbackHandler(fallback="fallback")
+        handler = FallbackHandler(config=FallbackConfig(fallback="fallback"))
         
         async def func():
             return "ok"

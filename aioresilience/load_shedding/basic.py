@@ -9,23 +9,31 @@ Dependencies: None (pure Python)
 
 import time
 import asyncio
-from typing import Optional, Callable, Any
+from typing import Optional, Callable, Any, Type
 from dataclasses import dataclass
-from enum import Enum
+from enum import IntEnum
 from functools import wraps
 
 from ..events import EventEmitter, PatternType, EventType, LoadShedderEvent
 from ..logging import get_logger
+from ..config import LoadSheddingConfig
+from ..exceptions import (
+    LoadSheddingError,
+    LoadSheddingReason,
+    ExceptionHandler,
+    ExceptionContext,
+    ExceptionConfig,
+)
 
 logger = get_logger(__name__)
 
 
-class LoadLevel(Enum):
-    """Load levels based on request count"""
-    NORMAL = "normal"
-    ELEVATED = "elevated"
-    HIGH = "high"
-    CRITICAL = "critical"
+class LoadLevel(IntEnum):
+    """Load levels based on request count (IntEnum for performance)"""
+    NORMAL = 0      # Normal load (most common)
+    ELEVATED = 1    # Elevated load
+    HIGH = 2        # High load  
+    CRITICAL = 3    # Critical load
 
 
 @dataclass
@@ -80,18 +88,22 @@ class BasicLoadShedder:
     
     def __init__(
         self,
-        max_requests: int = 1000,
-        max_queue_depth: int = 500,
+        config: Optional[LoadSheddingConfig] = None,
+        exceptions: Optional[ExceptionConfig] = None,
     ):
         """
         Initialize basic load shedder.
         
         Args:
-            max_requests: Maximum concurrent requests
-            max_queue_depth: Maximum queue depth
+            config: Optional LoadSheddingConfig for pattern settings
+            exceptions: Optional ExceptionConfig for exception handling
         """
-        self.max_requests = max_requests
-        self.max_queue_depth = max_queue_depth
+        # Initialize config with defaults
+        if config is None:
+            config = LoadSheddingConfig()
+        
+        self.max_requests = config.max_requests
+        self.max_queue_depth = config.max_queue_depth
         
         self.active_requests = 0
         self.queue_depth = 0
@@ -101,6 +113,19 @@ class BasicLoadShedder:
         
         # Event emitter for monitoring
         self.events = EventEmitter(pattern_name=f"load-shedder-{id(self)}")
+        
+        # Initialize exception handling
+        if exceptions is None:
+            exceptions = ExceptionConfig()
+        
+        self._exception_handler = ExceptionHandler(
+            pattern_name=f"load-shedder-{id(self)}",
+            pattern_type="load_shedding",
+            handled_exceptions=exceptions.handled_exceptions or (Exception,),
+            exception_type=exceptions.exception_type or LoadSheddingError,
+            exception_transformer=exceptions.exception_transformer,
+            on_exception=exceptions.on_exception,
+        )
     
     def _get_load_metrics(self) -> LoadMetrics:
         """Get current load metrics"""
@@ -196,6 +221,18 @@ class BasicLoadShedder:
             "utilization": (self.active_requests / self.max_requests) * 100,
             "type": "basic",
         }
+    
+    async def _raise_load_shedding_error(self, reason: LoadSheddingReason):
+        """Raise load shedding error using configured exception handler"""
+        _, exc = await self._exception_handler.handle_exception(
+            reason=reason,
+            original_exc=None,
+            message="Service overloaded - load shed",
+            active_requests=self.active_requests,
+            max_requests=self.max_requests,
+            queue_depth=self.queue_depth,
+        )
+        raise exc
 
 
 # Decorator for load shedding
@@ -203,7 +240,7 @@ def with_load_shedding(load_shedder: 'BasicLoadShedder', priority: str = "normal
     """
     Decorator to add load shedding to a function.
     
-    Raises RuntimeError if load should be shed.
+    Raises LoadSheddingError if load should be shed.
     For web framework integration, catch this and return appropriate HTTP response.
     
     Example:
@@ -218,7 +255,7 @@ def with_load_shedding(load_shedder: 'BasicLoadShedder', priority: str = "normal
         @wraps(func)
         async def wrapper(*args, **kwargs) -> Any:
             if not await load_shedder.acquire(priority):
-                raise RuntimeError("Service overloaded - load shed")
+                await load_shedder._raise_load_shedding_error(LoadSheddingReason.MAX_LOAD_EXCEEDED)
             
             try:
                 return await func(*args, **kwargs)

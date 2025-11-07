@@ -53,7 +53,8 @@ def retry_route(
     """
     # Create policy if not provided
     if retry_policy is None:
-        retry_policy = RetryPolicy(max_attempts=max_attempts, initial_delay=initial_delay)
+        from ...config import RetryConfig
+        retry_policy = RetryPolicy(config=RetryConfig(max_attempts=max_attempts, initial_delay=initial_delay))
     
     retry_codes = retry_on_status_codes or {500, 502, 503, 504}
     

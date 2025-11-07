@@ -7,6 +7,7 @@ from aioresilience import (
     CircuitBreaker,
     CircuitState,
     CircuitBreakerOpenError,
+    CircuitConfig,
     circuit_breaker,
     get_circuit_breaker,
     get_all_circuit_metrics,
@@ -31,7 +32,7 @@ class TestCircuitBreaker:
     @pytest.mark.asyncio
     async def test_circuit_closed_allows_execution(self):
         """Test that CLOSED circuit allows execution"""
-        cb = CircuitBreaker(name="test", failure_threshold=3)
+        cb = CircuitBreaker(name="test", config=CircuitConfig(failure_threshold=3))
         
         assert await cb.can_execute() is True
         assert cb.state == CircuitState.CLOSED
@@ -39,7 +40,7 @@ class TestCircuitBreaker:
     @pytest.mark.asyncio
     async def test_circuit_opens_after_threshold(self):
         """Test circuit opens after failure threshold"""
-        cb = CircuitBreaker(name="test", failure_threshold=3)
+        cb = CircuitBreaker(name="test", config=CircuitConfig(failure_threshold=3))
         
         # Trigger failures
         for i in range(3):
@@ -54,8 +55,10 @@ class TestCircuitBreaker:
         """Test transition from OPEN to HALF_OPEN after timeout"""
         cb = CircuitBreaker(
             name="test",
-            failure_threshold=2,
-            recovery_timeout=0.1  # 100ms timeout for testing
+            config=CircuitConfig(
+                failure_threshold=2,
+                recovery_timeout=0.1  # 100ms timeout for testing
+            )
         )
         
         # Open the circuit
@@ -76,9 +79,11 @@ class TestCircuitBreaker:
         """Test circuit closes after success threshold in HALF_OPEN"""
         cb = CircuitBreaker(
             name="test",
-            failure_threshold=2,
-            recovery_timeout=0.1,
-            success_threshold=2
+            config=CircuitConfig(
+                failure_threshold=2,
+                recovery_timeout=0.1,
+                success_threshold=2
+            )
         )
         
         # Open the circuit
@@ -103,8 +108,10 @@ class TestCircuitBreaker:
         """Test circuit reopens on failure in HALF_OPEN state"""
         cb = CircuitBreaker(
             name="test",
-            failure_threshold=2,
-            recovery_timeout=0.1
+            config=CircuitConfig(
+                failure_threshold=2,
+                recovery_timeout=0.1
+            )
         )
         
         # Open the circuit
@@ -137,7 +144,7 @@ class TestCircuitBreaker:
     @pytest.mark.asyncio
     async def test_circuit_call_failure(self):
         """Test failed circuit breaker call"""
-        cb = CircuitBreaker(name="test", failure_threshold=3)
+        cb = CircuitBreaker(name="test", config=CircuitConfig(failure_threshold=3))
         
         async def failing_func():
             raise ValueError("Test error")
@@ -151,7 +158,7 @@ class TestCircuitBreaker:
     @pytest.mark.asyncio
     async def test_circuit_call_when_open(self):
         """Test call fails fast when circuit is OPEN"""
-        cb = CircuitBreaker(name="test", failure_threshold=2)
+        cb = CircuitBreaker(name="test", config=CircuitConfig(failure_threshold=2))
         
         # Open the circuit
         await cb.on_failure()
@@ -166,7 +173,7 @@ class TestCircuitBreaker:
     @pytest.mark.asyncio
     async def test_circuit_timeout(self):
         """Test circuit breaker with timeout"""
-        cb = CircuitBreaker(name="test", timeout=0.1, failure_threshold=3)
+        cb = CircuitBreaker(name="test", config=CircuitConfig(timeout=0.1, failure_threshold=3))
         
         async def slow_func():
             await asyncio.sleep(1.0)
@@ -197,7 +204,7 @@ class TestCircuitBreaker:
     @pytest.mark.asyncio
     async def test_circuit_reset(self):
         """Test manual circuit reset"""
-        cb = CircuitBreaker(name="test", failure_threshold=2)
+        cb = CircuitBreaker(name="test", config=CircuitConfig(failure_threshold=2))
         
         # Open the circuit
         await cb.on_failure()
@@ -216,9 +223,11 @@ class TestCircuitBreaker:
         """Test that half_open_calls counter is properly managed"""
         cb = CircuitBreaker(
             name="test",
-            failure_threshold=1,
-            recovery_timeout=0.1,
-            half_open_max_calls=2
+            config=CircuitConfig(
+                failure_threshold=1,
+                recovery_timeout=0.1,
+                half_open_max_calls=2
+            )
         )
         
         # Open circuit
@@ -327,7 +336,7 @@ class TestCircuitBreakerThreadSafety:
     @pytest.mark.asyncio
     async def test_concurrent_can_execute(self):
         """Test concurrent can_execute calls are thread-safe"""
-        cb = CircuitBreaker(name="test", failure_threshold=10)
+        cb = CircuitBreaker(name="test", config=CircuitConfig(failure_threshold=10))
         
         # Multiple concurrent can_execute calls
         results = await asyncio.gather(*[
@@ -340,7 +349,7 @@ class TestCircuitBreakerThreadSafety:
     @pytest.mark.asyncio
     async def test_concurrent_failures(self):
         """Test concurrent failure tracking is thread-safe"""
-        cb = CircuitBreaker(name="test", failure_threshold=50)
+        cb = CircuitBreaker(name="test", config=CircuitConfig(failure_threshold=50))
         
         # Record 50 concurrent failures
         await asyncio.gather(*[
@@ -368,7 +377,7 @@ class TestCircuitBreakerThreadSafety:
     @pytest.mark.asyncio
     async def test_concurrent_state_transitions(self):
         """Test that concurrent operations don't corrupt state"""
-        cb = CircuitBreaker(name="test", failure_threshold=10, recovery_timeout=0.1)
+        cb = CircuitBreaker(name="test", config=CircuitConfig(failure_threshold=10, recovery_timeout=0.1))
         
         async def mixed_operations():
             """Mix of operations"""

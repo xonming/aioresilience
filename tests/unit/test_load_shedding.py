@@ -4,6 +4,7 @@ Tests for Load Shedding implementation
 import pytest
 import asyncio
 from aioresilience.load_shedding import BasicLoadShedder, LoadLevel, with_load_shedding
+from aioresilience import LoadSheddingConfig
 
 
 class TestBasicLoadShedder:
@@ -12,7 +13,7 @@ class TestBasicLoadShedder:
     @pytest.mark.asyncio
     async def test_load_shedder_initialization(self):
         """Test load shedder initializes correctly"""
-        ls = BasicLoadShedder(max_requests=1000, max_queue_depth=500)
+        ls = BasicLoadShedder(config=LoadSheddingConfig(max_requests=1000, max_queue_depth=500))
         
         assert ls.max_requests == 1000
         assert ls.max_queue_depth == 500
@@ -22,7 +23,7 @@ class TestBasicLoadShedder:
     @pytest.mark.asyncio
     async def test_acquire_under_limit(self):
         """Test acquire succeeds when under limit"""
-        ls = BasicLoadShedder(max_requests=10)
+        ls = BasicLoadShedder(config=LoadSheddingConfig(max_requests=10))
         
         result = await ls.acquire()
         assert result is True
@@ -31,7 +32,7 @@ class TestBasicLoadShedder:
     @pytest.mark.asyncio
     async def test_acquire_at_limit(self):
         """Test acquire fails when at limit"""
-        ls = BasicLoadShedder(max_requests=2)
+        ls = BasicLoadShedder(config=LoadSheddingConfig(max_requests=2))
         
         # Fill to limit
         await ls.acquire()
@@ -45,7 +46,7 @@ class TestBasicLoadShedder:
     @pytest.mark.asyncio
     async def test_release_decrements_counter(self):
         """Test release decrements active requests"""
-        ls = BasicLoadShedder(max_requests=10)
+        ls = BasicLoadShedder(config=LoadSheddingConfig(max_requests=10))
         
         await ls.acquire()
         await ls.acquire()
@@ -57,7 +58,7 @@ class TestBasicLoadShedder:
     @pytest.mark.asyncio
     async def test_priority_bypass(self):
         """Test high priority requests can bypass queue depth but not max_requests"""
-        ls = BasicLoadShedder(max_requests=10, max_queue_depth=5)
+        ls = BasicLoadShedder(config=LoadSheddingConfig(max_requests=10, max_queue_depth=5))
         
         # Fill to queue depth limit (but under max_requests)
         for _ in range(5):
@@ -76,55 +77,55 @@ class TestBasicLoadShedder:
     @pytest.mark.asyncio
     async def test_load_level_normal(self):
         """Test load level calculation - NORMAL"""
-        ls = BasicLoadShedder(max_requests=100)
+        ls = BasicLoadShedder(config=LoadSheddingConfig(max_requests=100))
         
         # 50% utilization
         for _ in range(50):
             await ls.acquire()
         
         stats = ls.get_stats()
-        assert stats["load_level"] == "normal"
+        assert stats["load_level"] == LoadLevel.NORMAL
 
     @pytest.mark.asyncio
     async def test_load_level_elevated(self):
         """Test load level calculation - ELEVATED"""
-        ls = BasicLoadShedder(max_requests=100)
+        ls = BasicLoadShedder(config=LoadSheddingConfig(max_requests=100))
         
         # 65% utilization
         for _ in range(65):
             await ls.acquire()
         
         stats = ls.get_stats()
-        assert stats["load_level"] == "elevated"
+        assert stats["load_level"] == LoadLevel.ELEVATED
 
     @pytest.mark.asyncio
     async def test_load_level_high(self):
         """Test load level calculation - HIGH"""
-        ls = BasicLoadShedder(max_requests=100)
+        ls = BasicLoadShedder(config=LoadSheddingConfig(max_requests=100))
         
         # 80% utilization
         for _ in range(80):
             await ls.acquire()
         
         stats = ls.get_stats()
-        assert stats["load_level"] == "high"
+        assert stats["load_level"] == LoadLevel.HIGH
 
     @pytest.mark.asyncio
     async def test_load_level_critical(self):
         """Test load level calculation - CRITICAL"""
-        ls = BasicLoadShedder(max_requests=100)
+        ls = BasicLoadShedder(config=LoadSheddingConfig(max_requests=100))
         
         # 95% utilization
         for _ in range(95):
             await ls.acquire()
         
         stats = ls.get_stats()
-        assert stats["load_level"] == "critical"
+        assert stats["load_level"] == LoadLevel.CRITICAL
 
     @pytest.mark.asyncio
     async def test_get_stats(self):
         """Test get_stats returns correct information"""
-        ls = BasicLoadShedder(max_requests=100, max_queue_depth=50)
+        ls = BasicLoadShedder(config=LoadSheddingConfig(max_requests=100, max_queue_depth=50))
         
         # Fill to capacity (exactly 100 requests)
         for _ in range(100):
@@ -145,7 +146,7 @@ class TestBasicLoadShedder:
     @pytest.mark.asyncio
     async def test_should_shed_load_returns_reason(self):
         """Test should_shed_load returns reason"""
-        ls = BasicLoadShedder(max_requests=2)
+        ls = BasicLoadShedder(config=LoadSheddingConfig(max_requests=2))
         
         await ls.acquire()
         await ls.acquire()
@@ -161,7 +162,7 @@ class TestLoadSheddingDecorator:
     @pytest.mark.asyncio
     async def test_decorator_basic(self):
         """Test basic decorator usage"""
-        ls = BasicLoadShedder(max_requests=10)
+        ls = BasicLoadShedder(config=LoadSheddingConfig(max_requests=10))
         call_count = 0
         
         @with_load_shedding(ls, priority="normal")
@@ -177,7 +178,7 @@ class TestLoadSheddingDecorator:
     @pytest.mark.asyncio
     async def test_decorator_sheds_load(self):
         """Test decorator sheds load when overloaded"""
-        ls = BasicLoadShedder(max_requests=1)
+        ls = BasicLoadShedder(config=LoadSheddingConfig(max_requests=1))
         
         @with_load_shedding(ls, priority="normal")
         async def test_func():
@@ -189,7 +190,8 @@ class TestLoadSheddingDecorator:
         await asyncio.sleep(0.01)  # Let it acquire
         
         # Second call should be shed
-        with pytest.raises(RuntimeError, match="Service overloaded"):
+        from aioresilience import LoadSheddingError
+        with pytest.raises(LoadSheddingError, match="Service overloaded"):
             await test_func()
         
         await task1
@@ -197,7 +199,7 @@ class TestLoadSheddingDecorator:
     @pytest.mark.asyncio
     async def test_decorator_releases_on_exception(self):
         """Test decorator releases on exception"""
-        ls = BasicLoadShedder(max_requests=10)
+        ls = BasicLoadShedder(config=LoadSheddingConfig(max_requests=10))
         
         @with_load_shedding(ls, priority="normal")
         async def failing_func():
@@ -218,7 +220,7 @@ class TestLoadSheddingThreadSafety:
     @pytest.mark.asyncio
     async def test_concurrent_acquire(self):
         """Test concurrent acquire is thread-safe"""
-        ls = BasicLoadShedder(max_requests=50)
+        ls = BasicLoadShedder(config=LoadSheddingConfig(max_requests=50))
         
         results = await asyncio.gather(*[
             ls.acquire() for _ in range(100)
@@ -232,7 +234,7 @@ class TestLoadSheddingThreadSafety:
     @pytest.mark.asyncio
     async def test_concurrent_acquire_release(self):
         """Test concurrent acquire and release operations"""
-        ls = BasicLoadShedder(max_requests=100)
+        ls = BasicLoadShedder(config=LoadSheddingConfig(max_requests=100))
         
         async def acquire_and_release():
             if await ls.acquire():
@@ -255,7 +257,7 @@ class TestLoadSheddingThreadSafety:
     @pytest.mark.asyncio
     async def test_shed_count_accuracy(self):
         """Test that total_shed count is accurate under concurrency"""
-        ls = BasicLoadShedder(max_requests=10)
+        ls = BasicLoadShedder(config=LoadSheddingConfig(max_requests=10))
         
         # Fill to capacity
         for _ in range(10):
@@ -276,7 +278,7 @@ class TestLoadSheddingIntegration:
     @pytest.mark.asyncio
     async def test_realistic_request_handling(self):
         """Test realistic request handling scenario"""
-        ls = BasicLoadShedder(max_requests=100)
+        ls = BasicLoadShedder(config=LoadSheddingConfig(max_requests=100))
         
         async def handle_request(request_id: int):
             if await ls.acquire():
@@ -304,7 +306,7 @@ class TestLoadSheddingIntegration:
     @pytest.mark.asyncio
     async def test_graceful_degradation(self):
         """Test graceful degradation under load"""
-        ls = BasicLoadShedder(max_requests=50)
+        ls = BasicLoadShedder(config=LoadSheddingConfig(max_requests=50))
         
         processed = []
         shed = []

@@ -46,10 +46,10 @@ Simple sequential execution to measure minimum overhead.
 ### What to Look For
 
 **Overhead per Operation:**
-- **Excellent**: <10 µs/op - Suitable for high-throughput APIs (>50k RPS)
-- **Good**: 10-50 µs/op - Production ready for most use cases (>20k RPS)
-- **Acceptable**: 50-200 µs/op - Fine for moderate load (<10k RPS)
-- **High**: >200 µs/op - May indicate contention or need optimization
+- <10 µs/op - Suitable for high-throughput APIs (>50k RPS)
+- 10-50 µs/op - Suitable for most use cases (>20k RPS)
+- 50-200 µs/op - Moderate load (<10k RPS)
+- >200 µs/op - May indicate contention or need optimization
 
 **Throughput:**
 - Measure operations per second
@@ -66,7 +66,6 @@ aioresilience aims for:
 - Microsecond-level overhead per operation
 - Minimal allocations and GC pressure
 - Lock-free designs where possible
-- Support for 20,000+ RPS in production APIs
 
 ## Sharing Results
 

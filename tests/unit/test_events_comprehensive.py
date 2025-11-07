@@ -291,7 +291,7 @@ class TestGlobalBusProperties:
         """Test @global_bus.on decorator syntax"""
         event_received = None
         
-        @global_bus.on("state_change")
+        @global_bus.on(EventType.STATE_CHANGE.value)
         async def my_handler(event):
             nonlocal event_received
             event_received = event

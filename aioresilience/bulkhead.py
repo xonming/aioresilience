@@ -9,17 +9,20 @@ import asyncio
 import functools
 import time
 from dataclasses import dataclass
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Type
 
 from .events import EventEmitter, PatternType, EventType, BulkheadEvent
 from .logging import get_logger
+from .config import BulkheadConfig
+from .exceptions import (
+    BulkheadFullError,
+    BulkheadReason,
+    ExceptionHandler,
+    ExceptionContext,
+    ExceptionConfig,
+)
 
 logger = get_logger(__name__)
-
-
-class BulkheadFullError(Exception):
-    """Raised when bulkhead is at capacity and cannot accept more requests"""
-    pass
 
 
 @dataclass
@@ -67,30 +70,53 @@ class Bulkhead:
     
     def __init__(
         self,
-        max_concurrent: int,
-        max_waiting: int = 0,
-        timeout: Optional[float] = None,
         name: str = "bulkhead",
+        config: Optional[BulkheadConfig] = None,
+        exceptions: Optional[ExceptionConfig] = None,
     ):
-        if max_concurrent < 1:
-            raise ValueError("max_concurrent must be at least 1")
-        if max_waiting < 0:
-            raise ValueError("max_waiting must be non-negative")
-        if timeout is not None and timeout <= 0:
-            raise ValueError("timeout must be positive or None")
-        
-        self.max_concurrent = max_concurrent
-        self.max_waiting = max_waiting
-        self.timeout = timeout
         self.name = name
         
-        self._semaphore = asyncio.Semaphore(max_concurrent)
+        # Initialize config with defaults
+        if config is None:
+            config = BulkheadConfig()
+        
+        self.max_concurrent = config.max_concurrent
+        self.max_waiting = config.max_waiting
+        self.timeout = config.timeout
+        
+        self._semaphore = asyncio.Semaphore(self.max_concurrent)
         self._metrics = BulkheadMetrics()
         self._lock = asyncio.Lock()
         self._waiting_count = 0
         
         # Event emitter for monitoring
         self.events = EventEmitter(pattern_name=name)
+        
+        # Initialize exception handling
+        if exceptions is None:
+            exceptions = ExceptionConfig()
+        
+        self._exception_handler = ExceptionHandler(
+            pattern_name=name,
+            pattern_type="bulkhead",
+            handled_exceptions=exceptions.handled_exceptions or (Exception,),
+            exception_type=exceptions.exception_type or BulkheadFullError,
+            exception_transformer=exceptions.exception_transformer,
+            on_exception=exceptions.on_exception,
+        )
+    
+    async def _raise_bulkhead_full_error(self, reason: BulkheadReason):
+        """Raise exception when bulkhead is full using configured exception handler"""
+        _, exc = await self._exception_handler.handle_exception(
+            reason=reason,
+            original_exc=None,
+            message=f"Bulkhead '{self.name}' is at capacity",
+            active_count=self._metrics.current_active,
+            waiting_count=self._waiting_count,
+            max_concurrent=self.max_concurrent,
+            max_waiting=self.max_waiting,
+        )
+        raise exc
     
     async def _try_acquire(self) -> bool:
         """Try to acquire a slot, respecting waiting limit"""
@@ -170,9 +196,7 @@ class Bulkhead:
                 f"(max_concurrent: {self.max_concurrent}, "
                 f"max_waiting: {self.max_waiting})"
             )
-            raise BulkheadFullError(
-                f"Bulkhead '{self.name}' is at capacity"
-            )
+            await self._raise_bulkhead_full_error(BulkheadReason.CAPACITY_FULL)
         
         wait_time = time.perf_counter() - start_wait
         
@@ -312,10 +336,12 @@ def bulkhead(
     def decorator(func: Callable) -> Callable:
         bulkhead_name = name or f"bulkhead_{func.__name__}"
         bulkhead_instance = Bulkhead(
-            max_concurrent=max_concurrent,
-            max_waiting=max_waiting,
-            timeout=timeout,
             name=bulkhead_name,
+            config=BulkheadConfig(
+                max_concurrent=max_concurrent,
+                max_waiting=max_waiting,
+                timeout=timeout,
+            )
         )
         
         @functools.wraps(func)
@@ -352,10 +378,12 @@ class BulkheadRegistry:
         async with self._lock:
             if name not in self._bulkheads:
                 self._bulkheads[name] = Bulkhead(
-                    max_concurrent=max_concurrent,
-                    max_waiting=max_waiting,
-                    timeout=timeout,
                     name=name,
+                    config=BulkheadConfig(
+                        max_concurrent=max_concurrent,
+                        max_waiting=max_waiting,
+                        timeout=timeout,
+                    )
                 )
             return self._bulkheads[name]
     

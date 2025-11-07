@@ -22,15 +22,13 @@ class AdaptiveConcurrencyMiddleware(BaseHTTPMiddleware):
     Example:
         from fastapi import FastAPI
         from aioresilience import AdaptiveConcurrencyLimiter
+        from aioresilience.config import AdaptiveConcurrencyConfig
         from aioresilience.integrations.fastapi import AdaptiveConcurrencyMiddleware
         
         app = FastAPI()
         
-        limiter = AdaptiveConcurrencyLimiter(
-            initial_limit=100,
-            min_limit=10,
-            max_limit=1000
-        )
+        config = AdaptiveConcurrencyConfig(initial_limit=100)
+        limiter = AdaptiveConcurrencyLimiter("api-limiter", config)
         
         app.add_middleware(AdaptiveConcurrencyMiddleware, limiter=limiter)
     """

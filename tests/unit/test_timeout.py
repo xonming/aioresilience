@@ -7,6 +7,7 @@ import pytest
 import time
 from aioresilience import (
     TimeoutManager,
+    TimeoutConfig,
     DeadlineManager,
     timeout,
     with_timeout,
@@ -21,7 +22,7 @@ class TestTimeoutManager:
     @pytest.mark.asyncio
     async def test_successful_execution_within_timeout(self):
         """Test successful execution within timeout"""
-        manager = TimeoutManager(timeout=1.0)
+        manager = TimeoutManager(config=TimeoutConfig(timeout=1.0))
         
         async def fast_func():
             await asyncio.sleep(0.1)
@@ -37,7 +38,7 @@ class TestTimeoutManager:
     @pytest.mark.asyncio
     async def test_timeout_exceeded_raises(self):
         """Test that timeout raises OperationTimeoutError"""
-        manager = TimeoutManager(timeout=0.1, raise_on_timeout=True)
+        manager = TimeoutManager(config=TimeoutConfig(timeout=0.1, raise_on_timeout=True))
         
         async def slow_func():
             await asyncio.sleep(1.0)
@@ -53,7 +54,7 @@ class TestTimeoutManager:
     @pytest.mark.asyncio
     async def test_timeout_exceeded_returns_none(self):
         """Test that timeout can return None instead of raising"""
-        manager = TimeoutManager(timeout=0.1, raise_on_timeout=False)
+        manager = TimeoutManager(config=TimeoutConfig(timeout=0.1, raise_on_timeout=False))
         
         async def slow_func():
             await asyncio.sleep(1.0)
@@ -68,7 +69,7 @@ class TestTimeoutManager:
     @pytest.mark.asyncio
     async def test_sync_function_timeout(self):
         """Test timeout with sync functions"""
-        manager = TimeoutManager(timeout=0.1)
+        manager = TimeoutManager(config=TimeoutConfig(timeout=0.1))
         
         def slow_sync():
             time.sleep(1.0)
@@ -80,7 +81,7 @@ class TestTimeoutManager:
     @pytest.mark.asyncio
     async def test_metrics_tracking(self):
         """Test that metrics are tracked correctly"""
-        manager = TimeoutManager(timeout=1.0)
+        manager = TimeoutManager(config=TimeoutConfig(timeout=1.0))
         
         async def func():
             await asyncio.sleep(0.05)
@@ -99,7 +100,7 @@ class TestTimeoutManager:
     @pytest.mark.asyncio
     async def test_reset_metrics(self):
         """Test metrics reset"""
-        manager = TimeoutManager(timeout=1.0)
+        manager = TimeoutManager(config=TimeoutConfig(timeout=1.0))
         
         async def func():
             return "ok"
@@ -118,10 +119,10 @@ class TestTimeoutManager:
     def test_invalid_timeout(self):
         """Test validation of timeout value"""
         with pytest.raises(ValueError, match="timeout must be positive"):
-            TimeoutManager(timeout=0)
+            TimeoutConfig(timeout=0)
         
         with pytest.raises(ValueError, match="timeout must be positive"):
-            TimeoutManager(timeout=-1.0)
+            TimeoutConfig(timeout=-1.0)
 
 
 class TestTimeoutDecorator:
@@ -338,7 +339,7 @@ class TestTimeoutConcurrency:
     @pytest.mark.asyncio
     async def test_concurrent_timeouts(self):
         """Test multiple concurrent operations with timeouts"""
-        manager = TimeoutManager(timeout=0.5)
+        manager = TimeoutManager(config=TimeoutConfig(timeout=0.5))
         
         async def task(n):
             await asyncio.sleep(n * 0.1)
@@ -355,7 +356,7 @@ class TestTimeoutConcurrency:
     @pytest.mark.asyncio
     async def test_concurrent_mixed_results(self):
         """Test concurrent operations with mixed success/timeout"""
-        manager = TimeoutManager(timeout=0.15, raise_on_timeout=False)
+        manager = TimeoutManager(config=TimeoutConfig(timeout=0.15, raise_on_timeout=False))
         
         async def task(n):
             await asyncio.sleep(n * 0.1)

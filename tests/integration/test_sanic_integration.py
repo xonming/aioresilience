@@ -4,7 +4,7 @@ Tests for Sanic Integration
 
 import pytest
 from sanic import Sanic, response as sanic_response
-from aioresilience import CircuitBreaker, RateLimiter, Bulkhead
+from aioresilience import CircuitBreaker, RateLimiter, Bulkhead, CircuitConfig, BulkheadConfig
 from aioresilience.integrations.sanic import (
     circuit_breaker_route,
     rate_limit_route,
@@ -24,7 +24,7 @@ class TestSanicDecorators:
         """Test circuit breaker decorator allows successful requests"""
         import uuid
         app = Sanic(f"test_app_{uuid.uuid4().hex[:8]}")
-        circuit = CircuitBreaker(name="test", failure_threshold=3)
+        circuit = CircuitBreaker(name="test", config=CircuitConfig(failure_threshold=3))
         
         @app.get("/test")
         @circuit_breaker_route(circuit)
@@ -40,7 +40,7 @@ class TestSanicDecorators:
         """Test bulkhead decorator allows requests within limit"""
         import uuid
         app = Sanic(f"test_app_{uuid.uuid4().hex[:8]}")
-        bulkhead = Bulkhead(max_concurrent=10)
+        bulkhead = Bulkhead(config=BulkheadConfig(max_concurrent=10))
         
         @app.get("/test")
         @bulkhead_route(bulkhead)
@@ -121,11 +121,11 @@ class TestSanicSetupResilience:
     @pytest.mark.asyncio
     async def test_setup_resilience_basic(self):
         """Test basic resilience setup"""
-        from aioresilience import LoadShedder
+        from aioresilience import LoadShedder, LoadSheddingConfig
         
         import uuid
         app = Sanic(f"test_app_{uuid.uuid4().hex[:8]}")
-        load_shedder = LoadShedder(max_requests=100)
+        load_shedder = LoadShedder(config=LoadSheddingConfig(max_requests=100))
         
         setup_resilience(app, load_shedder=load_shedder)
         
@@ -139,11 +139,11 @@ class TestSanicSetupResilience:
     @pytest.mark.asyncio
     async def test_setup_resilience_excludes_health_endpoints(self):
         """Test that health endpoints are excluded from resilience"""
-        from aioresilience import LoadShedder
+        from aioresilience import LoadShedder, LoadSheddingConfig
         
         import uuid
         app = Sanic(f"test_app_{uuid.uuid4().hex[:8]}")
-        load_shedder = LoadShedder(max_requests=0)  # Reject all
+        load_shedder = LoadShedder(config=LoadSheddingConfig(max_requests=1))  # Very low capacity
         
         setup_resilience(app, load_shedder=load_shedder)
         
@@ -206,7 +206,7 @@ class TestSanicIntegration:
         import uuid
         app = Sanic(f"test_app_{uuid.uuid4().hex[:8]}")
         circuit = CircuitBreaker(name="test")
-        bulkhead = Bulkhead(max_concurrent=10)
+        bulkhead = Bulkhead(config=BulkheadConfig(max_concurrent=10))
         
         @app.get("/test")
         @circuit_breaker_route(circuit)

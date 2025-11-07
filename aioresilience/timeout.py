@@ -8,17 +8,20 @@ import asyncio
 import functools
 import time
 from dataclasses import dataclass
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Type
 
 from .events import EventEmitter, PatternType, EventType, TimeoutEvent
 from .logging import get_logger
+from .config import TimeoutConfig
+from .exceptions import (
+    OperationTimeoutError,
+    TimeoutReason,
+    ExceptionHandler,
+    ExceptionContext,
+    ExceptionConfig,
+)
 
 logger = get_logger(__name__)
-
-
-class OperationTimeoutError(Exception):
-    """Raised when an operation exceeds its timeout"""
-    pass
 
 
 @dataclass
@@ -56,19 +59,44 @@ class TimeoutManager:
     
     def __init__(
         self,
-        timeout: float,
-        raise_on_timeout: bool = True,
+        config: Optional[TimeoutConfig] = None,
+        exceptions: Optional[ExceptionConfig] = None,
     ):
-        if timeout <= 0:
-            raise ValueError("timeout must be positive")
+        # Initialize config with defaults
+        if config is None:
+            config = TimeoutConfig()
         
-        self.timeout = timeout
-        self.raise_on_timeout = raise_on_timeout
+        self.timeout = config.timeout
+        self.raise_on_timeout = config.raise_on_timeout
         self._metrics = TimeoutMetrics()
         self._lock = asyncio.Lock()
         
         # Event emitter for monitoring
         self.events = EventEmitter(pattern_name=f"timeout-{id(self)}")
+        
+        # Initialize exception handling
+        if exceptions is None:
+            exceptions = ExceptionConfig()
+        
+        self._exception_handler = ExceptionHandler(
+            pattern_name=f"timeout-{id(self)}",
+            pattern_type="timeout",
+            handled_exceptions=exceptions.handled_exceptions or (Exception,),
+            exception_type=exceptions.exception_type or OperationTimeoutError,
+            exception_transformer=exceptions.exception_transformer,
+            on_exception=exceptions.on_exception,
+        )
+    
+    async def _raise_timeout_error(self, elapsed: float):
+        """Raise timeout error using configured exception handler"""
+        _, exc = await self._exception_handler.handle_exception(
+            reason=TimeoutReason.TIMEOUT_EXCEEDED,
+            original_exc=None,
+            message=f"Operation exceeded timeout of {self.timeout}s",
+            timeout=self.timeout,
+            elapsed=elapsed,
+        )
+        raise exc
     
     async def execute(
         self,
@@ -155,9 +183,7 @@ class TimeoutManager:
             ))
             
             if self.raise_on_timeout:
-                raise OperationTimeoutError(
-                    f"Operation exceeded timeout of {self.timeout}s"
-                ) from None
+                await self._raise_timeout_error(execution_time)
             else:
                 return None
     
@@ -186,9 +212,34 @@ class DeadlineManager:
         self,
         deadline: float,
         raise_on_deadline: bool = True,
+        # New exception handling parameters
+        exception_type: Optional[Type[Exception]] = None,
+        exception_transformer: Optional[Callable[[Exception, ExceptionContext], Exception]] = None,
+        on_deadline_exceeded: Optional[Callable[[ExceptionContext], None]] = None,
     ):
         self.deadline = deadline
         self.raise_on_deadline = raise_on_deadline
+        
+        # Initialize exception handler
+        self._exception_handler = ExceptionHandler(
+            pattern_name=f"deadline-{id(self)}",
+            pattern_type="deadline",
+            handled_exceptions=(Exception,),  # Not used for deadline
+            exception_type=exception_type or OperationTimeoutError,
+            exception_transformer=exception_transformer,
+            on_exception=on_deadline_exceeded,
+        )
+    
+    async def _raise_deadline_error(self, message: str):
+        """Raise deadline error using configured exception handler"""
+        _, exc = await self._exception_handler.handle_exception(
+            reason=TimeoutReason.DEADLINE_EXCEEDED,
+            original_exc=None,
+            message=message,
+            deadline=self.deadline,
+            current_time=time.time(),
+        )
+        raise exc
     
     def time_remaining(self) -> float:
         """Get remaining time until deadline"""
@@ -221,7 +272,7 @@ class DeadlineManager:
         if self.is_expired():
             logger.warning("Deadline already expired before execution")
             if self.raise_on_deadline:
-                raise OperationTimeoutError("Deadline already expired")
+                await self._raise_deadline_error("Deadline already expired")
             else:
                 return None
         
@@ -248,7 +299,7 @@ class DeadlineManager:
             )
             
             if self.raise_on_deadline:
-                raise OperationTimeoutError("Operation exceeded deadline") from None
+                await self._raise_deadline_error("Operation exceeded deadline")
             else:
                 return None
 
@@ -268,7 +319,7 @@ def timeout(
                 return response.json()
     """
     def decorator(func: Callable) -> Callable:
-        manager = TimeoutManager(timeout=seconds, raise_on_timeout=raise_on_timeout)
+        manager = TimeoutManager(config=TimeoutConfig(timeout=seconds, raise_on_timeout=raise_on_timeout))
         
         @functools.wraps(func)
         async def wrapper(*args, **kwargs):
@@ -298,7 +349,7 @@ async def with_timeout(
         # or
         result = await with_timeout(sync_function, 3.0, arg1, arg2, key=value)
     """
-    manager = TimeoutManager(timeout=timeout_seconds)
+    manager = TimeoutManager(config=TimeoutConfig(timeout=timeout_seconds))
     return await manager.execute(coro_or_func, *args, **kwargs)
 
 

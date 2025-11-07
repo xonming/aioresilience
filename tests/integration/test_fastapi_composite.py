@@ -11,6 +11,9 @@ from aioresilience import (
     RateLimiter,
     Bulkhead,
     LoadShedder,
+    CircuitConfig,
+    BulkheadConfig,
+    LoadSheddingConfig,
 )
 from aioresilience.integrations.fastapi import ResilienceMiddleware
 
@@ -21,7 +24,7 @@ class TestResilienceMiddleware:
     def test_with_circuit_breaker(self):
         """Test composite with circuit breaker"""
         app = FastAPI()
-        circuit = CircuitBreaker("test", failure_threshold=2)
+        circuit = CircuitBreaker("test", config=CircuitConfig(failure_threshold=2))
         
         app.add_middleware(
             ResilienceMiddleware,
@@ -41,7 +44,7 @@ class TestResilienceMiddleware:
     def test_with_rate_limiter(self):
         """Test composite with rate limiter"""
         app = FastAPI()
-        limiter = RateLimiter(name="test")
+        limiter = RateLimiter()
         
         app.add_middleware(
             ResilienceMiddleware,
@@ -61,7 +64,7 @@ class TestResilienceMiddleware:
     def test_with_bulkhead(self):
         """Test composite with bulkhead"""
         app = FastAPI()
-        bulkhead = Bulkhead(max_concurrent=5)
+        bulkhead = Bulkhead(config=BulkheadConfig(max_concurrent=5))
         
         app.add_middleware(
             ResilienceMiddleware,
@@ -80,7 +83,7 @@ class TestResilienceMiddleware:
     def test_with_load_shedder(self):
         """Test composite with load shedder"""
         app = FastAPI()
-        load_shedder = LoadShedder(max_queue_depth=100)
+        load_shedder = LoadShedder(config=LoadSheddingConfig(max_queue_depth=100))
         
         app.add_middleware(
             ResilienceMiddleware,
@@ -117,9 +120,9 @@ class TestResilienceMiddleware:
     def test_with_multiple_patterns(self):
         """Test composite with multiple patterns"""
         app = FastAPI()
-        circuit = CircuitBreaker("test", failure_threshold=5)
-        bulkhead = Bulkhead(max_concurrent=10)
-        limiter = RateLimiter(name="test")
+        circuit = CircuitBreaker("test", config=CircuitConfig(failure_threshold=5))
+        bulkhead = Bulkhead(config=BulkheadConfig(max_concurrent=10))
+        limiter = RateLimiter()
         
         app.add_middleware(
             ResilienceMiddleware,
@@ -143,7 +146,7 @@ class TestResilienceMiddleware:
     def test_exclude_paths(self):
         """Test path exclusion in composite"""
         app = FastAPI()
-        circuit = CircuitBreaker("test", failure_threshold=1)
+        circuit = CircuitBreaker("test", config=CircuitConfig(failure_threshold=1))
         
         app.add_middleware(
             ResilienceMiddleware,
@@ -173,7 +176,7 @@ class TestResilienceMiddleware:
     def test_circuit_breaker_opens(self):
         """Test circuit breaker in composite"""
         app = FastAPI()
-        circuit = CircuitBreaker("test", failure_threshold=1)
+        circuit = CircuitBreaker("test", config=CircuitConfig(failure_threshold=1))
         
         app.add_middleware(
             ResilienceMiddleware,
@@ -193,7 +196,7 @@ class TestResilienceMiddleware:
     def test_rate_limit_exceeded(self):
         """Test rate limiting in composite with very low limit"""
         app = FastAPI()
-        limiter = RateLimiter(name="test")
+        limiter = RateLimiter()
         
         app.add_middleware(
             ResilienceMiddleware,
@@ -241,7 +244,7 @@ class TestResilienceMiddlewareConfiguration:
     def test_exclude_paths_default(self):
         """Test default excluded paths"""
         app = FastAPI()
-        circuit = CircuitBreaker("test", failure_threshold=1)
+        circuit = CircuitBreaker("test", config=CircuitConfig(failure_threshold=1))
         
         # Default excludes: /health, /metrics, /ready, /healthz
         app.add_middleware(
@@ -266,7 +269,7 @@ class TestResilienceMiddlewareConfiguration:
     def test_custom_exclude_paths(self):
         """Test custom excluded paths"""
         app = FastAPI()
-        circuit = CircuitBreaker("test", failure_threshold=1)
+        circuit = CircuitBreaker("test", config=CircuitConfig(failure_threshold=1))
         
         app.add_middleware(
             ResilienceMiddleware,
