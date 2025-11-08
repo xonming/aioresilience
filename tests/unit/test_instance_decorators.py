@@ -47,7 +47,8 @@ async def test_with_circuit_breaker():
         await test_func()
     
     # Verify the same instance is being used
-    assert circuit.failure_count == 2
+    metrics = circuit.get_metrics()
+    assert metrics['failed_requests'] == 2
     assert test_func.circuit_breaker is circuit
 
 
@@ -72,7 +73,8 @@ async def test_with_retry():
     
     # Verify the same instance is being used
     metrics = policy.get_metrics()
-    assert metrics['total_retries'] == 2  # 3 attempts = 2 retries
+    assert metrics['total_attempts'] == 3
+    assert metrics['failed_attempts'] == 2  # 2 failures before success
     assert test_func.retry_policy is policy
 
 
@@ -92,8 +94,8 @@ async def test_with_timeout_manager():
     
     # Verify the same instance is being used
     metrics = manager.get_metrics()
-    assert metrics['total_operations'] == 1
-    assert metrics['successful_operations'] == 1
+    assert metrics['total_executions'] == 1
+    assert metrics['successful_executions'] == 1
     assert test_func.timeout_manager is manager
 
 
@@ -113,7 +115,7 @@ async def test_with_bulkhead():
     
     # Verify the same instance is being used
     metrics = bulkhead.get_metrics()
-    assert metrics['total_accepted'] == 1
+    assert metrics['successful_requests'] == 1
     assert test_func.bulkhead is bulkhead
 
 
