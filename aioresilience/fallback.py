@@ -316,7 +316,10 @@ def fallback(
     reraise_on_fallback_failure: bool = True,
 ):
     """
-    Decorator to add fallback logic to async functions.
+    Decorator to add fallback logic to async functions (convenience pattern).
+    
+    Creates a new FallbackHandler instance. For reusable instances across
+    multiple functions, use @with_fallback_handler(handler) instead.
     
     Example:
         # Static fallback value
@@ -329,14 +332,14 @@ def fallback(
         @fallback(lambda: {"status": "unavailable"})
         async def get_status():
             return await api.get_status()
+    
+    Recommended (instance-based):
+        handler = FallbackHandler(config=FallbackConfig(fallback=[]))
         
-        # Async fallback
-        async def get_cached_data(*args, **kwargs):
-            return await cache.get("data")
-        
-        @fallback(get_cached_data)
-        async def fetch_data():
-            return await api.fetch()
+        @with_fallback_handler(handler)
+        async def fetch_items():
+            response = await api.get_items()
+            return response.json()
     """
     def decorator(func: Callable) -> Callable:
         handler = FallbackHandler(
@@ -381,6 +384,33 @@ def chained_fallback(
             fallback_on_exceptions=fallback_on_exceptions,
         )
         
+        @functools.wraps(func)
+        async def wrapper(*args, **kwargs):
+            return await handler.execute(func, *args, **kwargs)
+        
+        # Attach handler for metrics access
+        wrapper.fallback_handler = handler
+        
+        return wrapper
+    
+    return decorator
+
+
+def with_fallback_handler(handler: FallbackHandler):
+    """
+    Decorator to use an existing FallbackHandler instance.
+    
+    Args:
+        handler: Existing FallbackHandler instance to use
+        
+    Example:
+        handler = FallbackHandler(config=FallbackConfig(fallback={"default": "data"}))
+        
+        @with_fallback_handler(handler)
+        async def fetch_data():
+            return await api.fetch()
+    """
+    def decorator(func: Callable) -> Callable:
         @functools.wraps(func)
         async def wrapper(*args, **kwargs):
             return await handler.execute(func, *args, **kwargs)

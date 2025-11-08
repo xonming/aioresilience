@@ -10,6 +10,7 @@ from aioresilience import (
     TimeoutConfig,
     DeadlineManager,
     timeout,
+    with_timeout_manager,
     with_timeout,
     with_deadline,
     OperationTimeoutError,
@@ -130,8 +131,10 @@ class TestTimeoutDecorator:
     
     @pytest.mark.asyncio
     async def test_decorator_basic(self):
-        """Test basic decorator usage"""
-        @timeout(1.0)
+        """Test basic instance-based decorator usage"""
+        manager = TimeoutManager(config=TimeoutConfig(timeout=1.0))
+        
+        @with_timeout_manager(manager)
         async def fast_func():
             await asyncio.sleep(0.1)
             return "success"
@@ -141,8 +144,10 @@ class TestTimeoutDecorator:
     
     @pytest.mark.asyncio
     async def test_decorator_timeout(self):
-        """Test decorator with timeout"""
-        @timeout(0.1)
+        """Test instance-based decorator with timeout"""
+        manager = TimeoutManager(config=TimeoutConfig(timeout=0.1))
+        
+        @with_timeout_manager(manager)
         async def slow_func():
             await asyncio.sleep(1.0)
             return "too slow"
@@ -152,8 +157,10 @@ class TestTimeoutDecorator:
     
     @pytest.mark.asyncio
     async def test_decorator_with_args(self):
-        """Test decorator with function arguments"""
-        @timeout(1.0)
+        """Test instance-based decorator with function arguments"""
+        manager = TimeoutManager(config=TimeoutConfig(timeout=1.0))
+        
+        @with_timeout_manager(manager)
         async def add(a, b):
             await asyncio.sleep(0.01)
             return a + b
@@ -163,8 +170,10 @@ class TestTimeoutDecorator:
     
     @pytest.mark.asyncio
     async def test_decorator_no_raise(self):
-        """Test decorator that returns None on timeout"""
-        @timeout(0.1, raise_on_timeout=False)
+        """Test instance-based decorator that returns None on timeout"""
+        manager = TimeoutManager(config=TimeoutConfig(timeout=0.1, raise_on_timeout=False))
+        
+        @with_timeout_manager(manager)
         async def slow_func():
             await asyncio.sleep(1.0)
             return "too slow"
@@ -174,8 +183,10 @@ class TestTimeoutDecorator:
     
     @pytest.mark.asyncio
     async def test_decorator_metrics_access(self):
-        """Test accessing metrics through decorated function"""
-        @timeout(1.0)
+        """Test accessing metrics through instance-based decorated function"""
+        manager = TimeoutManager(config=TimeoutConfig(timeout=1.0))
+        
+        @with_timeout_manager(manager)
         async def func():
             return "ok"
         

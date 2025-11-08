@@ -91,6 +91,7 @@ from .circuit_breaker import (
     CircuitBreaker,
     CircuitState,
     circuit_breaker,
+    with_circuit_breaker,
     CircuitBreakerManager,
     get_circuit_breaker,
     get_all_circuit_metrics,
@@ -109,6 +110,7 @@ from .retry import (
     RetryPolicy,
     RetryStrategy,
     retry,
+    with_retry,
     RetryPolicies,
 )
 
@@ -116,6 +118,7 @@ from .timeout import (
     TimeoutManager,
     DeadlineManager,
     timeout,
+    with_timeout_manager,
     with_timeout,
     with_deadline,
 )
@@ -123,6 +126,7 @@ from .timeout import (
 from .bulkhead import (
     Bulkhead,
     bulkhead,
+    with_bulkhead,
     get_bulkhead,
     get_all_bulkhead_metrics,
 )
@@ -132,6 +136,7 @@ from .fallback import (
     ChainedFallback,
     fallback,
     chained_fallback,
+    with_fallback_handler,
     with_fallback,
 )
 
@@ -212,6 +217,7 @@ __all__ = [
     "CircuitBreaker",
     "CircuitState",
     "circuit_breaker",
+    "with_circuit_breaker",
     "CircuitBreakerManager",
     "get_circuit_breaker",
     "get_all_circuit_metrics",
@@ -220,18 +226,21 @@ __all__ = [
     "RetryPolicy",
     "RetryStrategy",
     "retry",
+    "with_retry",
     "RetryPolicies",
     
     # Timeout & Deadline
     "TimeoutManager",
     "DeadlineManager",
     "timeout",
+    "with_timeout_manager",
     "with_timeout",
     "with_deadline",
     
     # Bulkhead
     "Bulkhead",
     "bulkhead",
+    "with_bulkhead",
     "get_bulkhead",
     "get_all_bulkhead_metrics",
     
@@ -240,6 +249,7 @@ __all__ = [
     "ChainedFallback",
     "fallback",
     "chained_fallback",
+    "with_fallback_handler",
     "with_fallback",
     
     # Backpressure
@@ -281,6 +291,6 @@ __all__ = [
     "is_logging_enabled",
 ]
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 __author__ = "xonming"
 __license__ = "MIT"

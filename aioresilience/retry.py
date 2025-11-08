@@ -409,10 +409,22 @@ def retry(
     retry_on_result: Optional[Callable[[Any], bool]] = None,
 ):
     """
-    Decorator to add retry logic to async functions.
+    Decorator to add retry logic to async functions (convenience pattern).
+    
+    Creates a new RetryPolicy instance. For reusable instances across
+    multiple functions, use @with_retry(policy) instead.
     
     Example:
         @retry(max_attempts=5, initial_delay=0.5, strategy=RetryStrategy.EXPONENTIAL)
+        async def fetch_data():
+            async with httpx.AsyncClient() as client:
+                response = await client.get("https://api.example.com/data")
+                return response.json()
+    
+    Recommended (instance-based):
+        policy = RetryPolicy(config=RetryConfig(max_attempts=5, initial_delay=0.5))
+        
+        @with_retry(policy)
         async def fetch_data():
             async with httpx.AsyncClient() as client:
                 response = await client.get("https://api.example.com/data")
@@ -432,6 +444,35 @@ def retry(
             )
         )
         
+        @functools.wraps(func)
+        async def wrapper(*args, **kwargs):
+            return await policy.execute(func, *args, **kwargs)
+        
+        # Attach policy for metrics access
+        wrapper.retry_policy = policy
+        
+        return wrapper
+    
+    return decorator
+
+
+def with_retry(policy: RetryPolicy):
+    """
+    Decorator to use an existing RetryPolicy instance.
+    
+    Args:
+        policy: Existing RetryPolicy instance to use
+        
+    Example:
+        policy = RetryPolicy(config=RetryConfig(max_attempts=5, initial_delay=0.5))
+        
+        @with_retry(policy)
+        async def fetch_data():
+            async with httpx.AsyncClient() as client:
+                response = await client.get("https://api.example.com/data")
+                return response.json()
+    """
+    def decorator(func: Callable) -> Callable:
         @functools.wraps(func)
         async def wrapper(*args, **kwargs):
             return await policy.execute(func, *args, **kwargs)

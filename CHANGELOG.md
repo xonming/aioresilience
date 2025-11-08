@@ -13,6 +13,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Prometheus metrics exporter
 - OpenTelemetry integration
 
+## [0.2.1] - 2025-11-08
+
+### Added
+- **Instance-Based Decorators** - New decorators for using existing pattern instances
+  - `@with_circuit_breaker(circuit)` - Use existing CircuitBreaker instance
+  - `@with_retry(policy)` - Use existing RetryPolicy instance
+  - `@with_timeout_manager(manager)` - Use existing TimeoutManager instance
+  - `@with_bulkhead(bulkhead)` - Use existing Bulkhead instance
+  - `@with_fallback_handler(handler)` - Use existing FallbackHandler instance
+  - Enables state sharing across multiple decorated functions
+  - Improves metrics tracking with single instance per pattern
+  - Reduces memory overhead from duplicate instances
+
+### Changed
+- **Updated Documentation** - All examples now use recommended instance-based decorator pattern
+  - README.md examples updated to use `@with_*` decorators
+  - Test files updated to demonstrate instance-based pattern
+  - Source code docstrings show both convenience and recommended patterns
+  - Maintains backward compatibility with convenience decorators (`@circuit_breaker`, `@retry`, etc.)
+
+### Improved
+- **API Consistency** - All patterns now follow the same decorator pattern
+  - Consistent `@with_pattern(instance)` naming convention
+  - Clear separation between convenience (instance creation) and recommended (instance reuse) patterns
+  - Better developer experience with predictable API surface
+
 ## [0.2.0] - 2025-11-07
 
 ### Added

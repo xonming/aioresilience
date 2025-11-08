@@ -10,6 +10,7 @@ from aioresilience import (
     RetryConfig,
     RetryStrategy,
     retry,
+    with_retry,
     RetryPolicies,
 )
 
@@ -297,10 +298,11 @@ class TestRetryDecorator:
     
     @pytest.mark.asyncio
     async def test_decorator_basic(self):
-        """Test basic decorator usage"""
+        """Test basic instance-based decorator usage"""
         call_count = 0
+        policy = RetryPolicy(config=RetryConfig(max_attempts=3, initial_delay=0.01))
         
-        @retry(max_attempts=3, initial_delay=0.01)
+        @with_retry(policy)
         async def decorated_func():
             nonlocal call_count
             call_count += 1
@@ -315,8 +317,10 @@ class TestRetryDecorator:
     
     @pytest.mark.asyncio
     async def test_decorator_with_args(self):
-        """Test decorator with function arguments"""
-        @retry(max_attempts=3, initial_delay=0.01)
+        """Test instance-based decorator with function arguments"""
+        policy = RetryPolicy(config=RetryConfig(max_attempts=3, initial_delay=0.01))
+        
+        @with_retry(policy)
         async def add(a, b):
             return a + b
         
@@ -325,8 +329,10 @@ class TestRetryDecorator:
     
     @pytest.mark.asyncio
     async def test_decorator_metrics_access(self):
-        """Test accessing metrics through decorated function"""
-        @retry(max_attempts=3, initial_delay=0.01)
+        """Test accessing metrics through instance-based decorated function"""
+        policy = RetryPolicy(config=RetryConfig(max_attempts=3, initial_delay=0.01))
+        
+        @with_retry(policy)
         async def func():
             return "ok"
         

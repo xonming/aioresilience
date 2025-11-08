@@ -9,6 +9,7 @@ from aioresilience import (
     CircuitBreakerOpenError,
     CircuitConfig,
     circuit_breaker,
+    with_circuit_breaker,
     get_circuit_breaker,
     get_all_circuit_metrics,
 )
@@ -256,10 +257,11 @@ class TestCircuitBreakerDecorator:
 
     @pytest.mark.asyncio
     async def test_decorator_basic(self):
-        """Test basic decorator usage"""
+        """Test basic instance-based decorator usage"""
         call_count = 0
+        circuit = CircuitBreaker(name="test", config=CircuitConfig(failure_threshold=3))
         
-        @circuit_breaker("test", failure_threshold=3)
+        @with_circuit_breaker(circuit)
         async def test_func():
             nonlocal call_count
             call_count += 1
@@ -271,9 +273,10 @@ class TestCircuitBreakerDecorator:
 
     @pytest.mark.asyncio
     async def test_decorator_with_failures(self):
-        """Test decorator with failures"""
+        """Test instance-based decorator with failures"""
+        circuit = CircuitBreaker(name="test", config=CircuitConfig(failure_threshold=2))
         
-        @circuit_breaker("test", failure_threshold=2)
+        @with_circuit_breaker(circuit)
         async def failing_func():
             raise ValueError("Test error")
         
@@ -288,13 +291,15 @@ class TestCircuitBreakerDecorator:
 
     @pytest.mark.asyncio
     async def test_decorator_exposes_circuit_breaker(self):
-        """Test that decorator exposes circuit breaker instance"""
+        """Test that instance-based decorator exposes circuit breaker instance"""
+        circuit = CircuitBreaker(name="test", config=CircuitConfig(failure_threshold=5))
         
-        @circuit_breaker("test", failure_threshold=5)
+        @with_circuit_breaker(circuit)
         async def test_func():
             return "success"
         
         assert hasattr(test_func, 'circuit_breaker')
+        assert test_func.circuit_breaker is circuit
         assert isinstance(test_func.circuit_breaker, CircuitBreaker)
         assert test_func.circuit_breaker.name == "test"
 

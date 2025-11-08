@@ -9,6 +9,7 @@ from aioresilience import (
     BulkheadConfig,
     BulkheadFullError,
     bulkhead,
+    with_bulkhead,
     get_bulkhead,
     get_all_bulkhead_metrics,
 )
@@ -250,8 +251,10 @@ class TestBulkheadDecorator:
     
     @pytest.mark.asyncio
     async def test_decorator_basic(self):
-        """Test basic decorator usage"""
-        @bulkhead(max_concurrent=3)
+        """Test basic instance-based decorator usage"""
+        bh = Bulkhead(name="test", config=BulkheadConfig(max_concurrent=3))
+        
+        @with_bulkhead(bh)
         async def process(x):
             await asyncio.sleep(0.01)
             return x * 2
@@ -264,8 +267,9 @@ class TestBulkheadDecorator:
         """Test that decorator limits concurrency"""
         active = 0
         max_active = 0
+        bh = Bulkhead(name="test", config=BulkheadConfig(max_concurrent=2, max_waiting=0))
         
-        @bulkhead(max_concurrent=2, max_waiting=0)
+        @with_bulkhead(bh)
         async def task():
             nonlocal active, max_active
             active += 1
@@ -287,8 +291,10 @@ class TestBulkheadDecorator:
     
     @pytest.mark.asyncio
     async def test_decorator_metrics_access(self):
-        """Test accessing metrics through decorated function"""
-        @bulkhead(max_concurrent=5, name="test_decorator")
+        """Test accessing metrics through instance-based decorated function"""
+        bh = Bulkhead(name="test_decorator", config=BulkheadConfig(max_concurrent=5))
+        
+        @with_bulkhead(bh)
         async def func():
             return "ok"
         

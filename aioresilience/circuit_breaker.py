@@ -446,10 +446,20 @@ def circuit_breaker(
     **kwargs
 ):
     """
-    Decorator to add circuit breaker to a function
+    Decorator to add circuit breaker to a function (convenience pattern).
+    
+    Creates a new CircuitBreaker instance. For reusable instances across
+    multiple functions, use @with_circuit_breaker(circuit) instead.
     
     Example:
         @circuit_breaker("external_api", failure_threshold=3, recovery_timeout=30)
+        async def call_external_api():
+            return await httpx.get("https://api.example.com")
+    
+    Recommended (instance-based):
+        circuit = CircuitBreaker(name="api", config=CircuitConfig(failure_threshold=3))
+        
+        @with_circuit_breaker(circuit)
         async def call_external_api():
             return await httpx.get("https://api.example.com")
     """
@@ -477,6 +487,37 @@ def circuit_breaker(
             return await cb.call(func, *args, **kwargs)
         
         async_wrapper.circuit_breaker = cb  # Expose circuit breaker instance
+        return async_wrapper
+    
+    return decorator
+
+
+def with_circuit_breaker(circuit: CircuitBreaker):
+    """
+    Decorator to use an existing CircuitBreaker instance.
+    
+    Args:
+        circuit: Existing CircuitBreaker instance to use
+        
+    Example:
+        circuit = CircuitBreaker(name="api", config=CircuitConfig(failure_threshold=5))
+        
+        @with_circuit_breaker(circuit)
+        async def call_external_api():
+            return await httpx.get("https://api.example.com")
+    """
+    def decorator(func: Callable) -> Callable:
+        if not asyncio.iscoroutinefunction(func):
+            raise TypeError(
+                f"Circuit breaker decorator can only be applied to async functions. "
+                f"'{func.__name__}' is not async. Use 'async def' or call circuit_breaker.call() manually."
+            )
+        
+        @wraps(func)
+        async def async_wrapper(*args, **kwargs) -> Any:
+            return await circuit.call(func, *args, **kwargs)
+        
+        async_wrapper.circuit_breaker = circuit  # Expose circuit breaker instance
         return async_wrapper
     
     return decorator

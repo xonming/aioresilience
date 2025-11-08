@@ -28,38 +28,33 @@ aioresilience is a fault tolerance library for Python's asyncio ecosystem. It pr
 
 **Requirements:** Python 3.9+
 
-**Current version:** 0.2.0 (introduces config-based API)
+**Current version:** 0.2.1 (instance-based decorators + config-based API)
 
 ```python
 from aioresilience import (
     CircuitBreaker, CircuitConfig,
     RateLimiter,
     LoadShedder, LoadSheddingConfig,
-    circuit_breaker, with_load_shedding
+    with_circuit_breaker, with_load_shedding
 )
 
-# Create a CircuitBreaker with Config API (v0.2.0+)
+# Create pattern instances with Config API (v0.2.0+)
 circuit = CircuitBreaker(
     name="backendService",
     config=CircuitConfig(failure_threshold=5, recovery_timeout=60.0)
 )
-
-# Create a RateLimiter with local in-memory storage
 rate_limiter = RateLimiter()
-
-# Create a LoadShedder with Config API
 load_shedder = LoadShedder(config=LoadSheddingConfig(max_requests=1000))
 
 # Example: Your backend service call
 async def call_external_api():
-    # Simulated API call
     import httpx
     async with httpx.AsyncClient() as client:
         response = await client.get("https://api.example.com/data")
         return response.json()
 
-# Decorate your function with Circuit Breaker and Load Shedding
-@circuit_breaker("backendService", failure_threshold=5)
+# Option 1: Use instance-based decorators (recommended for reusable instances)
+@with_circuit_breaker(circuit)
 @with_load_shedding(load_shedder, priority="normal")
 async def decorated_call(user_id: str):
     # Check rate limit
@@ -68,13 +63,13 @@ async def decorated_call(user_id: str):
     else:
         raise Exception("Rate limit exceeded")
 
-# Execute the decorated function and handle exceptions
+# Execute the decorated function
 try:
     result = await decorated_call("user_123")
 except Exception as e:
     result = "Fallback value"
 
-# Or call directly through the circuit breaker
+# Option 2: Call directly through the instance
 result = await circuit.call(call_external_api)
 ```
 
@@ -299,11 +294,15 @@ class BackendService:
 backend_service = BackendService()
 
 # Create a CircuitBreaker with custom configuration
+from aioresilience.config import CircuitConfig
+
 circuit = CircuitBreaker(
     name="backendName",
-    failure_threshold=5,      # Open after 5 consecutive failures
-    recovery_timeout=60.0,    # Wait 60 seconds before trying half-open
-    success_threshold=2       # Need 2 successes to close from half-open
+    config=CircuitConfig(
+        failure_threshold=5,      # Open after 5 consecutive failures
+        recovery_timeout=60.0,    # Wait 60 seconds before trying half-open
+        success_threshold=2       # Need 2 successes to close from half-open
+    )
 )
 
 # Decorate your call to BackendService.do_something()
@@ -318,8 +317,8 @@ async def call_backend():
     else:
         raise Exception("Circuit breaker is OPEN")
 
-# Or use the decorator pattern
-@circuit_breaker("backendName", failure_threshold=5)
+# Or use instance-based decorator (recommended)
+@with_circuit_breaker(circuit)
 async def decorated_backend_call():
     return await backend_service.do_something()
 
@@ -819,12 +818,14 @@ async def fetch_data():
 # Execute with retry
 result = await policy.execute(fetch_data)
 
-# Or use the decorator
-@retry(
+# Or use instance-based decorator (recommended)
+user_policy = RetryPolicy(config=RetryConfig(
     max_attempts=3,
     initial_delay=0.5,
     strategy=RetryStrategy.EXPONENTIAL
-)
+))
+
+@with_retry(user_policy)
 async def fetch_user(user_id: str):
     async with httpx.AsyncClient() as client:
         response = await client.get(f"https://api.example.com/users/{user_id}")
@@ -916,8 +917,10 @@ try:
 except OperationTimeoutError:
     print("Operation timed out")
 
-# Or use the decorator
-@timeout(3.0)
+# Or use instance-based decorator (recommended)
+timeout_mgr = TimeoutManager(config=TimeoutConfig(timeout=3.0))
+
+@with_timeout_manager(timeout_mgr)
 async def fetch_data():
     async with httpx.AsyncClient() as client:
         response = await client.get("https://api.example.com/data")
@@ -1009,8 +1012,10 @@ async def execute_query(query: str):
 
 result = await db_bulkhead.execute(execute_query, "SELECT * FROM users")
 
-# Or use the decorator
-@bulkhead(max_concurrent=5, max_waiting=10)
+# Or use instance-based decorator (recommended)
+api_bulkhead = Bulkhead(name="api", config=BulkheadConfig(max_concurrent=5, max_waiting=10))
+
+@with_bulkhead(api_bulkhead)
 async def call_external_api(endpoint: str):
     async with httpx.AsyncClient() as client:
         response = await client.get(f"https://api.example.com/{endpoint}")
@@ -1100,10 +1105,12 @@ Provide alternative responses when operations fail:
 
 ```python
 import httpx
-from aioresilience import fallback, chained_fallback, with_fallback
+from aioresilience import FallbackHandler, FallbackConfig, with_fallback_handler, chained_fallback, with_fallback
 
-# Simple static fallback
-@fallback([])
+# Simple static fallback using instance-based decorator (recommended)
+items_fallback = FallbackHandler(config=FallbackConfig(fallback=[]))
+
+@with_fallback_handler(items_fallback)
 async def fetch_items():
     async with httpx.AsyncClient() as client:
         response = await client.get("https://api.example.com/items")
@@ -1112,7 +1119,9 @@ async def fetch_items():
 # If fetch_items fails, returns empty list []
 
 # Fallback with callable
-@fallback(lambda: {"status": "unavailable"})
+status_fallback = FallbackHandler(config=FallbackConfig(fallback=lambda: {"status": "unavailable"}))
+
+@with_fallback_handler(status_fallback)
 async def get_service_status():
     async with httpx.AsyncClient() as client:
         response = await client.get("https://api.example.com/status")
@@ -1123,7 +1132,9 @@ async def get_cached_data(*args, **kwargs):
     # Simulated cache lookup
     return {"cached": True, "data": "cached_user_data"}
 
-@fallback(get_cached_data)
+user_fallback = FallbackHandler(config=FallbackConfig(fallback=get_cached_data))
+
+@with_fallback_handler(user_fallback)
 async def fetch_user_data(user_id: str):
     async with httpx.AsyncClient() as client:
         response = await client.get(f"https://api.example.com/users/{user_id}")
@@ -1175,23 +1186,21 @@ user = await get_user("123")
 Track when fallback values are used:
 
 ```python
-from aioresilience import fallback
-
-@fallback({"status": "unavailable"})
-async def get_service_status():
-    # ... implementation ...
-    pass
-
-# Get notified when fallback is triggered
-from aioresilience import FallbackHandler
+from aioresilience import FallbackHandler, with_fallback_handler
 from aioresilience.config import FallbackConfig
 
-fallback_handler = FallbackHandler(config=FallbackConfig(fallback={"default": "data"}))
+# Create fallback handler and register event listener
+fallback_handler = FallbackHandler(config=FallbackConfig(fallback={"status": "unavailable"}))
 
 @fallback_handler.events.on("fallback_triggered")
 async def on_fallback(event):
     print(f"Fallback triggered due to: {event.metadata.get('error_type')}")
     await send_alert("Primary service failed, using fallback")
+
+@with_fallback_handler(fallback_handler)
+async def get_service_status():
+    # ... implementation ...
+    pass
 ```
 
 </details>
@@ -1201,8 +1210,15 @@ async def on_fallback(event):
 Patterns can be stacked:
 
 ```python
-@retry(max_attempts=3, initial_delay=1.0)
-@fallback({"data": [], "status": "degraded"})
+from aioresilience import RetryPolicy, FallbackHandler, with_retry, with_fallback_handler
+from aioresilience.config import RetryConfig, FallbackConfig
+
+# Create pattern instances
+retry_policy = RetryPolicy(config=RetryConfig(max_attempts=3, initial_delay=1.0))
+fallback_handler = FallbackHandler(config=FallbackConfig(fallback={"data": [], "status": "degraded"}))
+
+@with_retry(retry_policy)
+@with_fallback_handler(fallback_handler)
 async def fetch_critical_data():
     async with httpx.AsyncClient() as client:
         response = await client.get("https://api.example.com/critical-data")

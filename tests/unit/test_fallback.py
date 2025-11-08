@@ -11,6 +11,7 @@ from aioresilience import (
     ChainedFallback,
     fallback,
     chained_fallback,
+    with_fallback_handler,
     with_fallback,
 )
 
@@ -206,8 +207,10 @@ class TestFallbackDecorator:
     
     @pytest.mark.asyncio
     async def test_decorator_basic(self):
-        """Test basic decorator usage"""
-        @fallback("fallback_value")
+        """Test basic instance-based decorator usage"""
+        handler = FallbackHandler(config=FallbackConfig(fallback="fallback_value"))
+        
+        @with_fallback_handler(handler)
         async def func():
             raise Exception("error")
         
@@ -216,8 +219,10 @@ class TestFallbackDecorator:
     
     @pytest.mark.asyncio
     async def test_decorator_success(self):
-        """Test decorator with successful execution"""
-        @fallback("fallback_value")
+        """Test instance-based decorator with successful execution"""
+        handler = FallbackHandler(config=FallbackConfig(fallback="fallback_value"))
+        
+        @with_fallback_handler(handler)
         async def func():
             return "success"
         
@@ -226,8 +231,10 @@ class TestFallbackDecorator:
     
     @pytest.mark.asyncio
     async def test_decorator_with_args(self):
-        """Test decorator with function arguments"""
-        @fallback(lambda a, b: a * 10)
+        """Test instance-based decorator with function arguments"""
+        handler = FallbackHandler(config=FallbackConfig(fallback=lambda a, b: a * 10))
+        
+        @with_fallback_handler(handler)
         async def divide(a, b):
             if b == 0:
                 raise ZeroDivisionError()
@@ -243,8 +250,10 @@ class TestFallbackDecorator:
     
     @pytest.mark.asyncio
     async def test_decorator_metrics_access(self):
-        """Test accessing metrics through decorated function"""
-        @fallback("fallback")
+        """Test accessing metrics through instance-based decorated function"""
+        handler = FallbackHandler(config=FallbackConfig(fallback="fallback"))
+        
+        @with_fallback_handler(handler)
         async def func():
             return "ok"
         
@@ -432,8 +441,9 @@ class TestFallbackIntegration:
     async def test_fallback_with_retry_simulation(self):
         """Test fallback pattern in retry-like scenario"""
         attempts = 0
+        handler = FallbackHandler(config=FallbackConfig(fallback=lambda: {"status": "degraded"}))
         
-        @fallback(lambda: {"status": "degraded"})
+        @with_fallback_handler(handler)
         async def fetch_data():
             nonlocal attempts
             attempts += 1
@@ -494,8 +504,10 @@ class TestFallbackIntegration:
     
     @pytest.mark.asyncio
     async def test_concurrent_fallbacks(self):
-        """Test multiple concurrent operations with fallbacks"""
-        @fallback("fallback")
+        """Test multiple concurrent operations with instance-based fallbacks"""
+        handler = FallbackHandler(config=FallbackConfig(fallback="fallback"))
+        
+        @with_fallback_handler(handler)
         async def task(fail: bool):
             if fail:
                 raise Exception("error")

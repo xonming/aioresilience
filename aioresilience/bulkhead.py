@@ -324,13 +324,23 @@ def bulkhead(
     name: Optional[str] = None,
 ):
     """
-    Decorator to protect async functions with bulkhead pattern.
+    Decorator to protect async functions with bulkhead pattern (convenience pattern).
+    
+    Creates a new Bulkhead instance. For reusable instances across
+    multiple functions, use @with_bulkhead(bulkhead) instead.
     
     Example:
         @bulkhead(max_concurrent=5, max_waiting=10, timeout=5.0)
         async def process_data(data):
             # This function will only run max 5 concurrent instances
             # with up to 10 waiting in queue
+            return await heavy_processing(data)
+    
+    Recommended (instance-based):
+        bh = Bulkhead(name="processor", config=BulkheadConfig(max_concurrent=5, max_waiting=10))
+        
+        @with_bulkhead(bh)
+        async def process_data(data):
             return await heavy_processing(data)
     """
     def decorator(func: Callable) -> Callable:
@@ -344,6 +354,33 @@ def bulkhead(
             )
         )
         
+        @functools.wraps(func)
+        async def wrapper(*args, **kwargs):
+            return await bulkhead_instance.execute(func, *args, **kwargs)
+        
+        # Attach bulkhead for metrics access
+        wrapper.bulkhead = bulkhead_instance
+        
+        return wrapper
+    
+    return decorator
+
+
+def with_bulkhead(bulkhead_instance: Bulkhead):
+    """
+    Decorator to use an existing Bulkhead instance.
+    
+    Args:
+        bulkhead_instance: Existing Bulkhead instance to use
+        
+    Example:
+        bulkhead = Bulkhead(name="api", config=BulkheadConfig(max_concurrent=10, max_waiting=20))
+        
+        @with_bulkhead(bulkhead)
+        async def process_data(data):
+            return await heavy_processing(data)
+    """
+    def decorator(func: Callable) -> Callable:
         @functools.wraps(func)
         async def wrapper(*args, **kwargs):
             return await bulkhead_instance.execute(func, *args, **kwargs)

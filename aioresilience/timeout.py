@@ -309,10 +309,22 @@ def timeout(
     raise_on_timeout: bool = True,
 ):
     """
-    Decorator to add timeout to async functions.
+    Decorator to add timeout to async functions (convenience pattern).
+    
+    Creates a new TimeoutManager instance. For reusable instances across
+    multiple functions, use @with_timeout_manager(manager) instead.
     
     Example:
         @timeout(5.0)
+        async def fetch_data():
+            async with httpx.AsyncClient() as client:
+                response = await client.get("https://api.example.com/data")
+                return response.json()
+    
+    Recommended (instance-based):
+        manager = TimeoutManager(config=TimeoutConfig(timeout=5.0))
+        
+        @with_timeout_manager(manager)
         async def fetch_data():
             async with httpx.AsyncClient() as client:
                 response = await client.get("https://api.example.com/data")
@@ -321,6 +333,35 @@ def timeout(
     def decorator(func: Callable) -> Callable:
         manager = TimeoutManager(config=TimeoutConfig(timeout=seconds, raise_on_timeout=raise_on_timeout))
         
+        @functools.wraps(func)
+        async def wrapper(*args, **kwargs):
+            return await manager.execute(func, *args, **kwargs)
+        
+        # Attach manager for metrics access
+        wrapper.timeout_manager = manager
+        
+        return wrapper
+    
+    return decorator
+
+
+def with_timeout_manager(manager: TimeoutManager):
+    """
+    Decorator to use an existing TimeoutManager instance.
+    
+    Args:
+        manager: Existing TimeoutManager instance to use
+        
+    Example:
+        manager = TimeoutManager(config=TimeoutConfig(timeout=5.0))
+        
+        @with_timeout_manager(manager)
+        async def fetch_data():
+            async with httpx.AsyncClient() as client:
+                response = await client.get("https://api.example.com/data")
+                return response.json()
+    """
+    def decorator(func: Callable) -> Callable:
         @functools.wraps(func)
         async def wrapper(*args, **kwargs):
             return await manager.execute(func, *args, **kwargs)
